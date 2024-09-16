@@ -1,0 +1,26 @@
+meta {
+  name: create user
+  type: http
+  seq: 5
+}
+
+get {
+  url: https://reviewit-notifications.lugetech.com/notifications?owner_id=123
+  body: json
+  auth: none
+}
+
+params:query {
+  owner_id: 123
+}
+
+body:json {
+  {
+    "owner_id": 1,
+    "message": "You have a new follower!",
+    "from": "system",
+    "read": false
+  }
+  
+  
+}

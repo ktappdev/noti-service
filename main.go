@@ -35,9 +35,10 @@ type Owner struct {
 }
 
 type Business struct {
-	ID        string `db:"id" json:"id"`
-	OwnerID   string `db:"owner_id" json:"owner_id"`
-	OwnerName string `db:"owner_name" json:"owner_name"`
+	ID           string `db:"id" json:"id"`
+	OwnerID      string `db:"owner_id" json:"owner_id"`
+	OwnerName    string `db:"owner_name" json:"owner_name"`
+	BusinessName string `db:"business_name" json:"business_name"`
 }
 
 var db *sql.DB
@@ -101,6 +102,7 @@ func createSchema() error {
         id VARCHAR(255) PRIMARY KEY,
         owner_id VARCHAR(255) NOT NULL,
         owner_name VARCHAR(255) NOT NULL,
+        business_name VARCHAR(255) NOT NULL,
         FOREIGN KEY (owner_id) REFERENCES owners(id) ON DELETE CASCADE
     );
 
