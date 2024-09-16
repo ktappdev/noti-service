@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v2/middleware/logger"
 	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
 )
@@ -67,6 +68,10 @@ func main() {
 	}
 
 	app := fiber.New()
+
+	app.Use(logger.New(logger.Config{
+		Format: "[${ip}]:${port} ${status} - ${method} ${path}\n",
+	}))
 
 	app.Post("/users", createUser)
 	app.Post("/owners", createOwner)

@@ -1,0 +1,22 @@
+meta {
+  name: get noti
+  type: http
+  seq: 4
+}
+
+post {
+  url: https://reviewit-notifications.lugetech.com/create-notification
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "user_id": 1,
+    "message": "You have a new follower!",
+    "from": "system",
+    "read": false
+  }
+  
+  
+}
