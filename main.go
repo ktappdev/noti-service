@@ -147,8 +147,10 @@ func createBusiness(c *fiber.Ctx) error {
 }
 
 func createNotification(c *fiber.Ctx) error {
+	fmt.Println("create notification")
 	notification := new(Notification)
 	if err := c.BodyParser(notification); err != nil {
+		fmt.Println(err)
 		return c.Status(400).SendString(err.Error())
 	}
 	fmt.Printf("this is the notification package %+v\n", notification)
@@ -166,9 +168,11 @@ func createNotification(c *fiber.Ctx) error {
 	// Check if the business exists and belongs to the user
 	err = db.QueryRow("SELECT EXISTS(SELECT 1 FROM businesses WHERE id = $1 AND user_id = $2)", notification.BusinessID, notification.UserID).Scan(&exists)
 	if err != nil {
+		fmt.Println("error business dont exist or don't belong to the owner ", err)
 		return c.Status(500).SendString(err.Error())
 	}
 	if !exists {
+		fmt.Println("business does not exist or does not belong to the user")
 		return c.Status(400).SendString("Business does not exist or does not belong to the user")
 	}
 
@@ -177,8 +181,10 @@ func createNotification(c *fiber.Ctx) error {
 	err = db.QueryRow(query, notification.ID, notification.UserID, notification.BusinessID, notification.ReviewTitle,
 		notification.FromName, notification.FromID, notification.Read).Scan(&notification.ID, &notification.CreatedAt)
 	if err != nil {
+		fmt.Println("error", err)
 		return c.Status(500).SendString(err.Error())
 	}
+	fmt.Println("success", notification)
 
 	return c.Status(201).JSON(notification)
 }
