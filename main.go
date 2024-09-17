@@ -186,10 +186,10 @@ func createNotification(c *fiber.Ctx) error {
 		return c.Status(400).SendString("Business does not exist or does not belong to the user")
 	}
 
-	query := `INSERT INTO notifications (id, user_id, business_id, review_title, from_name, from_id, read) 
-              VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id, created_at`
+	query := `INSERT INTO notifications (id, user_id, business_id, review_title, from_name, from_id, read, product_id, product_name) 
+              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id, created_at`
 	err = db.QueryRow(query, notification.ID, notification.UserID, notification.BusinessID, notification.ReviewTitle,
-		notification.FromName, notification.FromID, notification.Read).Scan(&notification.ID, &notification.CreatedAt)
+		notification.FromName, notification.FromID, notification.Read, notification.ProductID, notification.ProductName).Scan(&notification.ID, &notification.CreatedAt)
 	if err != nil {
 		fmt.Println("error", err)
 		return c.Status(500).SendString(err.Error())
