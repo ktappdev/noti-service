@@ -208,7 +208,18 @@ func getLatestNotifications(c *fiber.Ctx) error {
 
 	query := `SELECT * FROM notifications WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1`
 	var notification Notification
-	err := db.QueryRow(query, userID).Scan(&notification.ID, &notification.UserID, &notification.BusinessID, &notification.ReviewTitle, &notification.CreatedAt, &notification.FromName, &notification.FromID, &notification.Read)
+	err := db.QueryRow(query, userID).Scan(
+		&notification.ID,
+		&notification.UserID,
+		&notification.BusinessID,
+		&notification.ReviewTitle,
+		&notification.CreatedAt,
+		&notification.FromName,
+		&notification.FromID,
+		&notification.Read,
+		&notification.ProductID,
+		&notification.ProductName,
+	)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return c.Status(404).SendString("No notifications found")
@@ -236,7 +247,18 @@ func getAllNotifications(c *fiber.Ctx) error {
 	var notifications []Notification
 	for rows.Next() {
 		var notification Notification
-		if err := rows.Scan(&notification.ID, &notification.UserID, &notification.BusinessID, &notification.ReviewTitle, &notification.CreatedAt, &notification.FromName, &notification.FromID, &notification.Read); err != nil {
+		if err := rows.Scan(
+			&notification.ID,
+			&notification.UserID,
+			&notification.BusinessID,
+			&notification.ReviewTitle,
+			&notification.CreatedAt,
+			&notification.FromName,
+			&notification.FromID,
+			&notification.Read,
+			&notification.ProductID,
+			&notification.ProductName,
+		); err != nil {
 			return c.Status(500).SendString(err.Error())
 		}
 		notifications = append(notifications, notification)
@@ -251,16 +273,35 @@ func deleteReadNotifications(c *fiber.Ctx) error {
 		return c.Status(400).SendString("user_id query parameter is required")
 	}
 
-	query := `DELETE FROM notifications WHERE user_id = $1 AND read = true`
-	result, err := db.Exec(query, userID)
+	query := `DELETE FROM notifications WHERE user_id = $1 AND read = true RETURNING *`
+	rows, err := db.Query(query, userID)
 	if err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
+	defer rows.Close()
 
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		return c.Status(500).SendString(err.Error())
+	var deletedNotifications []Notification
+	for rows.Next() {
+		var notification Notification
+		if err := rows.Scan(
+			&notification.ID,
+			&notification.UserID,
+			&notification.BusinessID,
+			&notification.ReviewTitle,
+			&notification.CreatedAt,
+			&notification.FromName,
+			&notification.FromID,
+			&notification.Read,
+			&notification.ProductID,
+			&notification.ProductName,
+		); err != nil {
+			return c.Status(500).SendString(err.Error())
+		}
+		deletedNotifications = append(deletedNotifications, notification)
 	}
 
-	return c.JSON(fiber.Map{"deleted": rowsAffected})
+	return c.JSON(fiber.Map{
+		"deleted":       len(deletedNotifications),
+		"notifications": deletedNotifications,
+	})
 }
