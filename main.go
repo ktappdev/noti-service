@@ -2,6 +2,7 @@ package main
 
 import (
 	"database/sql"
+	"fmt"
 	"log"
 	"os"
 	"time"
@@ -150,6 +151,7 @@ func createNotification(c *fiber.Ctx) error {
 	if err := c.BodyParser(notification); err != nil {
 		return c.Status(400).SendString(err.Error())
 	}
+	fmt.Printf("this is the notification package %+v\n", notification)
 
 	// Check if the user exists
 	var exists bool
