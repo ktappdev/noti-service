@@ -23,6 +23,8 @@ type Notification struct {
 	FromName    string    `db:"from_name" json:"from_name"`
 	FromID      string    `db:"from_id" json:"from_id"`
 	Read        bool      `db:"read" json:"read"`
+	ProductID   string    `db:"product_id" json:"product_id"`
+	ProductName string    `db:"product_name" json:"product_name"`
 }
 
 type User struct {
@@ -97,6 +99,8 @@ func createSchema() error {
 
     CREATE TABLE IF NOT EXISTS notifications (
         id VARCHAR(255) PRIMARY KEY,
+        product_id VARCHAR(255) NOT NULL,
+        product_name VARCHAR(255) NOT NULL,
         user_id VARCHAR(255) NOT NULL,
         business_id VARCHAR(255) NOT NULL,
         review_title TEXT NOT NULL,
