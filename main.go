@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/gofiber/fiber/v2/middleware/logger"
 	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
@@ -59,7 +60,12 @@ func main() {
 	}
 
 	app := fiber.New()
-
+	// Add CORS middleware
+	app.Use(cors.New(cors.Config{
+		AllowOrigins: "*", // Allows all origins
+		AllowMethods: "GET,POST,HEAD,PUT,DELETE,PATCH",
+		AllowHeaders: "Origin, Content-Type, Accept",
+	}))
 	app.Use(logger.New(logger.Config{
 		Format: "[${ip}]:${port} ${status} - ${method} ${path}\n",
 	}))
@@ -191,6 +197,7 @@ func createNotification(c *fiber.Ctx) error {
 
 func getLatestNotifications(c *fiber.Ctx) error {
 	userID := c.Query("user_id")
+	fmt.Println("user id", userID)
 	if userID == "" {
 		return c.Status(400).SendString("user_id query parameter is required")
 	}
@@ -204,6 +211,7 @@ func getLatestNotifications(c *fiber.Ctx) error {
 		}
 		return c.Status(500).SendString(err.Error())
 	}
+	fmt.Println("notification", notification)
 
 	return c.JSON(notification)
 }
