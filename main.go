@@ -2,7 +2,6 @@ package main
 
 import (
 	"database/sql"
-	"fmt"
 	"log"
 	"os"
 	"time"
@@ -15,56 +14,56 @@ import (
 )
 
 type Notification struct {
-	ID          string    `db:"id" json:"id"`
-	UserID      string    `db:"user_id" json:"user_id"`
-	BusinessID  string    `db:"business_id" json:"business_id"`
-	ReviewTitle string    `db:"review_title" json:"review_title"`
-	CreatedAt   time.Time `db:"created_at" json:"created_at"`
-	FromName    string    `db:"from_name" json:"from_name"`
-	FromID      string    `db:"from_id" json:"from_id"`
-	Read        bool      `db:"read" json:"read"`
-	ProductID   string    `db:"product_id" json:"product_id"`
-	ProductName string    `db:"product_name" json:"product_name"`
+	ID          string    `json:"id"`
+	ProductID   string    `json:"product_id"`
+	ProductName string    `json:"product_name"`
+	UserID      string    `json:"user_id"`
+	BusinessID  string    `json:"business_id"`
+	ReviewTitle string    `json:"review_title"`
+	CreatedAt   time.Time `json:"created_at"`
+	FromName    string    `json:"from_name"`
+	FromID      string    `json:"from_id"`
+	Read        bool      `json:"read"`
 }
 
 type User struct {
-	ID       string `db:"id" json:"id"`
-	Username string `db:"username" json:"username"`
-	FullName string `db:"full_name" json:"full_name"`
+	ID       string `json:"id"`
+	Username string `json:"username"`
+	FullName string `json:"full_name"`
 }
 
 type Business struct {
-	ID           string `db:"id" json:"id"`
-	UserID       string `db:"user_id" json:"user_id"`
-	BusinessName string `db:"business_name" json:"business_name"`
+	ID           string `json:"id"`
+	UserID       string `json:"user_id"`
+	BusinessName string `json:"business_name"`
 }
 
 var db *sql.DB
 
 func main() {
-	var err error
-	err = godotenv.Load()
-	if err != nil {
+	if err := godotenv.Load(); err != nil {
 		log.Fatal("Error loading .env file")
 	}
+
 	connStr := os.Getenv("DATABASE_URL")
 	if connStr == "" {
 		log.Fatal("DATABASE_URL environment variable is required")
 	}
+
+	var err error
 	db, err = sql.Open("postgres", connStr)
 	if err != nil {
 		log.Fatal(err)
 	}
+	defer db.Close()
 
-	err = createSchema()
-	if err != nil {
+	if err := createSchema(); err != nil {
 		log.Fatal(err)
 	}
 
 	app := fiber.New()
-	// Add CORS middleware
 	app.Use(cors.New(cors.Config{
-		AllowOrigins: "*", // Allows all origins
+		AllowOrigins: "*",
 		AllowMethods: "GET,POST,HEAD,PUT,DELETE,PATCH",
 		AllowHeaders: "Origin, Content-Type, Accept",
 	}))
@@ -137,7 +136,6 @@ func createBusiness(c *fiber.Ctx) error {
 		return c.Status(400).SendString(err.Error())
 	}
 
-	// Check if the user exists
 	var exists bool
 	err := db.QueryRow("SELECT EXISTS(SELECT 1 FROM users WHERE id = $1)", business.UserID).Scan(&exists)
 	if err != nil {
@@ -157,15 +155,11 @@ func createBusiness(c *fiber.Ctx) error {
 }
 
 func createNotification(c *fiber.Ctx) error {
-	fmt.Println("create notification")
 	notification := new(Notification)
 	if err := c.BodyParser(notification); err != nil {
-		fmt.Println(err)
 		return c.Status(400).SendString(err.Error())
 	}
-	fmt.Printf("this is the notification package %+v\n", notification)
 
-	// Check if the user exists
 	var exists bool
 	err := db.QueryRow("SELECT EXISTS(SELECT 1 FROM users WHERE id = $1)", notification.UserID).Scan(&exists)
 	if err != nil {
@@ -175,41 +169,41 @@ func createNotification(c *fiber.Ctx) error {
 		return c.Status(400).SendString("User does not exist")
 	}
 
-	// Check if the business exists and belongs to the user
 	err = db.QueryRow("SELECT EXISTS(SELECT 1 FROM businesses WHERE id = $1 AND user_id = $2)", notification.BusinessID, notification.UserID).Scan(&exists)
 	if err != nil {
-		fmt.Println("error business dont exist or don't belong to the owner ", err)
 		return c.Status(500).SendString(err.Error())
 	}
 	if !exists {
-		fmt.Println("business does not exist or does not belong to the user")
 		return c.Status(400).SendString("Business does not exist or does not belong to the user")
 	}
 
-	query := `INSERT INTO notifications (id, user_id, business_id, review_title, from_name, from_id, read, product_id, product_name) 
+	query := `INSERT INTO notifications (id, product_id, product_name, user_id, business_id, review_title, from_name, from_id, read) 
               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id, created_at`
-	err = db.QueryRow(query, notification.ID, notification.UserID, notification.BusinessID, notification.ReviewTitle,
-		notification.FromName, notification.FromID, notification.Read, notification.ProductID, notification.ProductName).Scan(&notification.ID, &notification.CreatedAt)
+	err = db.QueryRow(query, notification.ID, notification.ProductID, notification.ProductName, notification.UserID, notification.BusinessID,
+		notification.ReviewTitle, notification.FromName, notification.FromID, notification.Read).Scan(&notification.ID, &notification.CreatedAt)
 	if err != nil {
-		fmt.Println("error", err)
 		return c.Status(500).SendString(err.Error())
 	}
-	fmt.Println("success", notification)
 
 	return c.Status(201).JSON(notification)
 }
 
 func getLatestNotifications(c *fiber.Ctx) error {
 	userID := c.Query("user_id")
-	fmt.Println("user id", userID)
 	if userID == "" {
 		return c.Status(400).SendString("user_id query parameter is required")
 	}
 
-	query := `SELECT * FROM notifications WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1`
+	query := `SELECT id, product_id, product_name, user_id, business_id, review_title, created_at, from_name, from_id, read 
+              FROM notifications 
+              WHERE user_id = $1 
+              ORDER BY created_at DESC 
+              LIMIT 1`
 	var notification Notification
 	err := db.QueryRow(query, userID).Scan(
 		&notification.ID,
+		&notification.ProductID,
+		&notification.ProductName,
 		&notification.UserID,
 		&notification.BusinessID,
 		&notification.ReviewTitle,
@@ -217,8 +211,6 @@ func getLatestNotifications(c *fiber.Ctx) error {
 		&notification.FromName,
 		&notification.FromID,
 		&notification.Read,
-		&notification.ProductID,
-		&notification.ProductName,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -226,7 +218,6 @@ func getLatestNotifications(c *fiber.Ctx) error {
 		}
 		return c.Status(500).SendString(err.Error())
 	}
-	fmt.Println("notification", notification)
 
 	return c.JSON(notification)
 }
@@ -237,7 +228,10 @@ func getAllNotifications(c *fiber.Ctx) error {
 		return c.Status(400).SendString("user_id query parameter is required")
 	}
 
-	query := `SELECT * FROM notifications WHERE user_id = $1 ORDER BY created_at DESC`
+	query := `SELECT id, product_id, product_name, user_id, business_id, review_title, created_at, from_name, from_id, read 
+              FROM notifications 
+              WHERE user_id = $1 
+              ORDER BY created_at DESC`
 	rows, err := db.Query(query, userID)
 	if err != nil {
 		return c.Status(500).SendString(err.Error())
@@ -249,6 +243,8 @@ func getAllNotifications(c *fiber.Ctx) error {
 		var notification Notification
 		if err := rows.Scan(
 			&notification.ID,
+			&notification.ProductID,
+			&notification.ProductName,
 			&notification.UserID,
 			&notification.BusinessID,
 			&notification.ReviewTitle,
@@ -256,8 +252,6 @@ func getAllNotifications(c *fiber.Ctx) error {
 			&notification.FromName,
 			&notification.FromID,
 			&notification.Read,
-			&notification.ProductID,
-			&notification.ProductName,
 		); err != nil {
 			return c.Status(500).SendString(err.Error())
 		}
@@ -273,7 +267,7 @@ func deleteReadNotifications(c *fiber.Ctx) error {
 		return c.Status(400).SendString("user_id query parameter is required")
 	}
 
-	query := `DELETE FROM notifications WHERE user_id = $1 AND read = true RETURNING *`
+	query := `DELETE FROM notifications WHERE user_id = $1 AND read = true RETURNING id, product_id, product_name, user_id, business_id, review_title, created_at, from_name, from_id, read`
 	rows, err := db.Query(query, userID)
 	if err != nil {
 		return c.Status(500).SendString(err.Error())
@@ -285,6 +279,8 @@ func deleteReadNotifications(c *fiber.Ctx) error {
 		var notification Notification
 		if err := rows.Scan(
 			&notification.ID,
+			&notification.ProductID,
+			&notification.ProductName,
 			&notification.UserID,
 			&notification.BusinessID,
 			&notification.ReviewTitle,
@@ -292,8 +288,6 @@ func deleteReadNotifications(c *fiber.Ctx) error {
 			&notification.FromName,
 			&notification.FromID,
 			&notification.Read,
-			&notification.ProductID,
-			&notification.ProductName,
 		); err != nil {
 			return c.Status(500).SendString(err.Error())
 		}
