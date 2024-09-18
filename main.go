@@ -157,6 +157,7 @@ func createBusiness(c *fiber.Ctx) error {
 func createNotification(c *fiber.Ctx) error {
 	notification := new(Notification)
 	if err := c.BodyParser(notification); err != nil {
+		log.Println("ERROR: Mostlikely the product don't have an owner, can't set notification", notification)
 		return c.Status(400).SendString(err.Error())
 	}
 
