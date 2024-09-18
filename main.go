@@ -214,7 +214,7 @@ func getLatestNotifications(c *fiber.Ctx) error {
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return c.Status(404).SendString("No notifications found")
+			return c.Status(200).SendString("No notifications found")
 		}
 		return c.Status(500).SendString(err.Error())
 	}
