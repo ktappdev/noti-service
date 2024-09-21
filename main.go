@@ -15,18 +15,19 @@ import (
 )
 
 type Notification struct {
-	ID          string    `db:"id" json:"id"`
-	ProductID   string    `db:"product_id" json:"product_id"`
-	ProductName string    `db:"product_name" json:"product_name"`
-	ReceiverID  string    `db:"receiver_id" json:"receiver_id"`
-	BusinessID  string    `db:"business_id" json:"business_id"`
-	ReviewTitle string    `db:"review_title" json:"review_title"`
-	CreatedAt   time.Time `db:"created_at" json:"created_at"`
-	FromName    string    `db:"from_name" json:"from_name"`
-	FromID      string    `db:"from_id" json:"from_id"`
-	Read        bool      `db:"read" json:"read"`
-	CommentID   *string   `db:"comment_id" json:"comment_id"`
-	ReviewID    *string   `db:"review_id" json:"review_id"`
+	ID               string    `db:"id" json:"id"`
+	ProductID        string    `db:"product_id" json:"product_id"`
+	ProductName      string    `db:"product_name" json:"product_name"`
+	ReceiverID       string    `db:"receiver_id" json:"receiver_id"`
+	BusinessID       string    `db:"business_id" json:"business_id"`
+	ReviewTitle      string    `db:"review_title" json:"review_title"`
+	CreatedAt        time.Time `db:"created_at" json:"created_at"`
+	FromName         string    `db:"from_name" json:"from_name"`
+	FromID           string    `db:"from_id" json:"from_id"`
+	Read             bool      `db:"read" json:"read"`
+	CommentID        *string   `db:"comment_id" json:"comment_id"`
+	ReviewID         *string   `db:"review_id" json:"review_id"`
+	NotificationType string    `db:"notification_type" json:"notification_type"`
 }
 
 type User struct {
@@ -42,47 +43,6 @@ type Business struct {
 }
 
 var db *sqlx.DB
-
-func main() {
-	if err := godotenv.Load(); err != nil {
-		log.Fatal("Error loading .env file")
-	}
-
-	connStr := os.Getenv("DATABASE_URL")
-	if connStr == "" {
-		log.Fatal("DATABASE_URL environment variable is required")
-	}
-
-	var err error
-	db, err = sqlx.Connect("postgres", connStr)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer db.Close()
-
-	if err := createSchema(); err != nil {
-		log.Fatal(err)
-	}
-
-	app := fiber.New()
-	app.Use(cors.New(cors.Config{
-		AllowOrigins: "*",
-		AllowMethods: "GET,POST,HEAD,PUT,DELETE,PATCH",
-		AllowHeaders: "Origin, Content-Type, Accept",
-	}))
-	app.Use(logger.New(logger.Config{
-		Format: "[${ip}]:${port} ${status} - ${method} ${path}\n",
-	}))
-
-	app.Post("/users", createUser)
-	app.Post("/businesses", createBusiness)
-	app.Post("/notifications", createNotification)
-	app.Get("/notifications/latest", getLatestNotifications)
-	app.Get("/notifications", getAllNotifications)
-	app.Delete("/notifications", deleteReadNotifications)
-
-	log.Fatal(app.Listen(":3001"))
-}
 
 func createSchema() error {
 	schema := `
@@ -112,6 +72,7 @@ func createSchema() error {
         read BOOLEAN DEFAULT FALSE,
         comment_id VARCHAR(255),
         review_id VARCHAR(255),
+        notification_type VARCHAR(50) NOT NULL,
         FOREIGN KEY (receiver_id) REFERENCES users(id) ON DELETE CASCADE,
         FOREIGN KEY (business_id) REFERENCES businesses(id) ON DELETE CASCADE
     );
@@ -182,6 +143,9 @@ func createNotification(c *fiber.Ctx) error {
 		return c.Status(400).SendString(err.Error())
 	}
 
+	// Set the notification type
+	notification.NotificationType = "review"
+
 	var exists bool
 	err := db.Get(&exists, "SELECT EXISTS(SELECT 1 FROM users WHERE id = $1)", notification.ReceiverID)
 	if err != nil {
@@ -199,8 +163,46 @@ func createNotification(c *fiber.Ctx) error {
 		return c.Status(400).SendString("Business does not exist or does not belong to the user")
 	}
 
-	query := `INSERT INTO notifications (id, product_id, product_name, receiver_id, business_id, review_title, from_name, from_id, read, comment_id, review_id) 
-              VALUES (:id, :product_id, :product_name, :receiver_id, :business_id, :review_title, :from_name, :from_id, :read, :comment_id, :review_id) RETURNING id, created_at`
+	query := `INSERT INTO notifications (id, product_id, product_name, receiver_id, business_id, review_title, from_name, from_id, read, comment_id, review_id, notification_type) 
+              VALUES (:id, :product_id, :product_name, :receiver_id, :business_id, :review_title, :from_name, :from_id, :read, :comment_id, :review_id, :notification_type) RETURNING id, created_at`
+	rows, err := db.NamedQuery(query, notification)
+	if err != nil {
+		return c.Status(500).SendString(err.Error())
+	}
+	defer rows.Close()
+
+	if rows.Next() {
+		err = rows.Scan(&notification.ID, &notification.CreatedAt)
+		if err != nil {
+			return c.Status(500).SendString(err.Error())
+		}
+	}
+
+	return c.Status(201).JSON(notification)
+}
+
+func createReplyNotification(c *fiber.Ctx) error {
+	notification := new(Notification)
+	if err := c.BodyParser(notification); err != nil {
+		return c.Status(400).SendString(err.Error())
+	}
+
+	// Set the notification type
+	notification.NotificationType = "reply"
+
+	// Verify that the review exists and belongs to the receiver
+	var exists bool
+	err := db.Get(&exists, "SELECT EXISTS(SELECT 1 FROM reviews WHERE id = $1 AND user_id = $2)", notification.ReviewID, notification.ReceiverID)
+	if err != nil {
+		return c.Status(500).SendString(err.Error())
+	}
+	if !exists {
+		return c.Status(400).SendString("Review does not exist or does not belong to the user")
+	}
+
+	// Insert the notification
+	query := `INSERT INTO notifications (id, product_id, product_name, receiver_id, business_id, review_title, from_name, from_id, read, comment_id, review_id, notification_type) 
+              VALUES (:id, :product_id, :product_name, :receiver_id, :business_id, :review_title, :from_name, :from_id, :read, :comment_id, :review_id, :notification_type) RETURNING id, created_at`
 	rows, err := db.NamedQuery(query, notification)
 	if err != nil {
 		return c.Status(500).SendString(err.Error())
@@ -274,4 +276,46 @@ func deleteReadNotifications(c *fiber.Ctx) error {
 		"deleted":       len(deletedNotifications),
 		"notifications": deletedNotifications,
 	})
+}
+
+func main() {
+	if err := godotenv.Load(); err != nil {
+		log.Fatal("Error loading .env file")
+	}
+
+	connStr := os.Getenv("DATABASE_URL")
+	if connStr == "" {
+		log.Fatal("DATABASE_URL environment variable is required")
+	}
+
+	var err error
+	db, err = sqlx.Connect("postgres", connStr)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer db.Close()
+
+	if err := createSchema(); err != nil {
+		log.Fatal(err)
+	}
+
+	app := fiber.New()
+	app.Use(cors.New(cors.Config{
+		AllowOrigins: "*",
+		AllowMethods: "GET,POST,HEAD,PUT,DELETE,PATCH",
+		AllowHeaders: "Origin, Content-Type, Accept",
+	}))
+	app.Use(logger.New(logger.Config{
+		Format: "[${ip}]:${port} ${status} - ${method} ${path}\n",
+	}))
+
+	app.Post("/users", createUser)
+	app.Post("/businesses", createBusiness)
+	app.Post("/notifications", createNotification)
+	app.Post("/notifications/reply", createReplyNotification)
+	app.Get("/notifications/latest", getLatestNotifications)
+	app.Get("/notifications", getAllNotifications)
+	app.Delete("/notifications", deleteReadNotifications)
+
+	log.Fatal(app.Listen(":3001"))
 }
