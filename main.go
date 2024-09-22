@@ -36,12 +36,6 @@ type User struct {
 	FullName string `db:"full_name" json:"full_name"`
 }
 
-type Business struct {
-	ID           string `db:"id" json:"id"`
-	UserID       string `db:"user_id" json:"user_id"`
-	BusinessName string `db:"business_name" json:"business_name"`
-}
-
 var db *sqlx.DB
 
 func createSchema() error {
@@ -52,12 +46,6 @@ func createSchema() error {
         full_name VARCHAR(255) NOT NULL
     );
 
-    CREATE TABLE IF NOT EXISTS businesses (
-        id VARCHAR(255) PRIMARY KEY,
-        user_id VARCHAR(255) NOT NULL,
-        business_name VARCHAR(255) NOT NULL,
-        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-    );
 
     CREATE TABLE IF NOT EXISTS notifications (
         id VARCHAR(255) PRIMARY KEY,
@@ -73,8 +61,7 @@ func createSchema() error {
         comment_id VARCHAR(255),
         review_id VARCHAR(255),
         notification_type VARCHAR(50) NOT NULL,
-        FOREIGN KEY (receiver_id) REFERENCES users(id) ON DELETE CASCADE,
-        FOREIGN KEY (business_id) REFERENCES businesses(id) ON DELETE CASCADE
+        FOREIGN KEY (receiver_id) REFERENCES users(id) ON DELETE CASCADE
     );
     `
 	_, err := db.Exec(schema)
@@ -102,38 +89,6 @@ func createUser(c *fiber.Ctx) error {
 	}
 
 	return c.Status(201).JSON(user)
-}
-
-func createBusiness(c *fiber.Ctx) error {
-	business := new(Business)
-	if err := c.BodyParser(business); err != nil {
-		return c.Status(400).SendString(err.Error())
-	}
-
-	var exists bool
-	err := db.Get(&exists, "SELECT EXISTS(SELECT 1 FROM users WHERE id = $1)", business.UserID)
-	if err != nil {
-		return c.Status(500).SendString(err.Error())
-	}
-	if !exists {
-		return c.Status(400).SendString("User does not exist")
-	}
-
-	query := `INSERT INTO businesses (id, user_id, business_name) VALUES (:id, :user_id, :business_name) RETURNING id`
-	rows, err := db.NamedQuery(query, business)
-	if err != nil {
-		return c.Status(500).SendString(err.Error())
-	}
-	defer rows.Close()
-
-	if rows.Next() {
-		err = rows.Scan(&business.ID)
-		if err != nil {
-			return c.Status(500).SendString(err.Error())
-		}
-	}
-
-	return c.Status(201).JSON(business)
 }
 
 func createNotification(c *fiber.Ctx) error {
@@ -293,6 +248,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+
 	defer db.Close()
 
 	if err := createSchema(); err != nil {
@@ -310,7 +266,6 @@ func main() {
 	}))
 
 	app.Post("/users", createUser)
-	app.Post("/businesses", createBusiness)
 	app.Post("/notifications", createNotification)
 	app.Post("/notifications/reply", createReplyNotification)
 	app.Get("/notifications/latest", getLatestNotifications)
