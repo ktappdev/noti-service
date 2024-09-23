@@ -131,18 +131,22 @@ func createProductOwnerNotification(c *fiber.Ctx) error {
 	var exists bool
 	err := db.Get(&exists, "SELECT EXISTS(SELECT 1 FROM users WHERE id = $1)", notification.OwnerID)
 	if err != nil {
+		log.Println(err)
 		return c.Status(500).SendString(err.Error())
 	}
 	if !exists {
+		log.Println("owner does not exist")
 		return c.Status(400).SendString("Owner does not exist")
 	}
 
 	// Check if the business exists and belongs to the owner
 	err = db.Get(&exists, "SELECT EXISTS(SELECT 1 FROM businesses WHERE id = $1 AND user_id = $2)", notification.BusinessID, notification.OwnerID)
 	if err != nil {
+		log.Println(err)
 		return c.Status(500).SendString(err.Error())
 	}
 	if !exists {
+		log.Println("Business does not exist or does not belong to the owner")
 		return c.Status(400).SendString("Business does not exist or does not belong to the owner")
 	}
 
@@ -150,6 +154,7 @@ func createProductOwnerNotification(c *fiber.Ctx) error {
               VALUES (:id, :owner_id, :product_id, :product_name, :business_id, :review_title, :from_name, :from_id, :read, :comment_id, :review_id, :notification_type) RETURNING id, created_at`
 	rows, err := db.NamedQuery(query, notification)
 	if err != nil {
+		log.Printf("Error creating notification: %v", err)
 		return c.Status(500).SendString(err.Error())
 	}
 	defer rows.Close()
@@ -157,6 +162,7 @@ func createProductOwnerNotification(c *fiber.Ctx) error {
 	if rows.Next() {
 		err = rows.Scan(&notification.ID, &notification.CreatedAt)
 		if err != nil {
+			log.Printf("Error scanning notification result: %v", err)
 			return c.Status(500).SendString(err.Error())
 		}
 	}
