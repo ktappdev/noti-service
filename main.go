@@ -1,6 +1,7 @@
 package main
 
 import (
+	"database/sql"
 	"log"
 	"os"
 	"time"
@@ -20,6 +21,8 @@ type UserNotification struct {
 	CreatedAt        time.Time `db:"created_at" json:"created_at"`
 	Read             bool      `db:"read" json:"read"`
 	NotificationType string    `db:"notification_type" json:"notification_type"`
+	CommentID        string    `db:"comment_id" json:"comment_id"`
+	ReviewID         string    `db:"review_id" json:"review_id"`
 }
 
 type ProductOwnerNotification struct {
@@ -61,6 +64,8 @@ func createSchema() error {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         read BOOLEAN DEFAULT FALSE,
         notification_type VARCHAR(50) NOT NULL,
+        comment_id VARCHAR(255),
+        review_id VARCHAR(255),
         FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     );
 
@@ -116,28 +121,29 @@ func createUser(c *fiber.Ctx) error {
 func createProductOwnerNotification(c *fiber.Ctx) error {
 	notification := new(ProductOwnerNotification)
 	if err := c.BodyParser(notification); err != nil {
-		log.Println("ERROR: Most likely the product doesn't have an owner, can't set notification", notification)
 		return c.Status(400).SendString(err.Error())
 	}
 
 	// Set the notification type
 	notification.NotificationType = "review"
 
+	// Check if the owner exists
 	var exists bool
 	err := db.Get(&exists, "SELECT EXISTS(SELECT 1 FROM users WHERE id = $1)", notification.OwnerID)
 	if err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
 	if !exists {
-		return c.Status(400).SendString("User does not exist")
+		return c.Status(400).SendString("Owner does not exist")
 	}
 
+	// Check if the business exists and belongs to the owner
 	err = db.Get(&exists, "SELECT EXISTS(SELECT 1 FROM businesses WHERE id = $1 AND user_id = $2)", notification.BusinessID, notification.OwnerID)
 	if err != nil {
 		return c.Status(500).SendString(err.Error())
 	}
 	if !exists {
-		return c.Status(400).SendString("Business does not exist or does not belong to the user")
+		return c.Status(400).SendString("Business does not exist or does not belong to the owner")
 	}
 
 	query := `INSERT INTO product_owner_notifications (id, owner_id, product_id, product_name, business_id, review_title, from_name, from_id, read, comment_id, review_id, notification_type) 
@@ -166,30 +172,35 @@ func createReplyNotification(c *fiber.Ctx) error {
 
 	// Set the notification type
 	notification.NotificationType = "reply"
+	log.Printf("Creating reply notification: %+v", notification)
 
-	// Verify that the review exists and belongs to the receiver
+	// Check if the user exists
 	var exists bool
-	err := db.Get(&exists, "SELECT EXISTS(SELECT 1 FROM reviews WHERE id = $1 AND user_id = $2)", c.Query("review_id"), notification.UserID)
+	err := db.Get(&exists, "SELECT EXISTS(SELECT 1 FROM users WHERE id = $1)", notification.UserID)
 	if err != nil {
-		return c.Status(500).SendString(err.Error())
+		log.Printf("Error checking user existence: %v", err)
+		return c.Status(500).SendString("Internal server error")
 	}
 	if !exists {
-		return c.Status(400).SendString("Review does not exist or does not belong to the user")
+		log.Println("user don't exist")
+		return c.Status(400).SendString("User does not exist")
 	}
 
 	// Insert the notification
-	query := `INSERT INTO user_notifications (id, user_id, content, read, notification_type) 
-              VALUES (:id, :user_id, :content, :read, :notification_type) RETURNING id, created_at`
+	query := `INSERT INTO user_notifications (id, user_id, content, read, notification_type, comment_id, review_id) 
+              VALUES (:id, :user_id, :content, :read, :notification_type, :comment_id, :review_id) RETURNING id, created_at`
 	rows, err := db.NamedQuery(query, notification)
 	if err != nil {
-		return c.Status(500).SendString(err.Error())
+		log.Printf("Error inserting notification: %v", err)
+		return c.Status(500).SendString("Failed to create notification")
 	}
 	defer rows.Close()
 
 	if rows.Next() {
 		err = rows.Scan(&notification.ID, &notification.CreatedAt)
 		if err != nil {
-			return c.Status(500).SendString(err.Error())
+			log.Printf("Error scanning notification result: %v", err)
+			return c.Status(500).SendString("Failed to retrieve created notification")
 		}
 	}
 
@@ -208,7 +219,7 @@ func getLatestNotifications(c *fiber.Ctx) error {
                   LIMIT 1`
 	var userNotification UserNotification
 	err := db.Get(&userNotification, userQuery, userID)
-	if err != nil && err.Error() != "sql: no rows in result set" {
+	if err != nil && err != sql.ErrNoRows {
 		return c.Status(500).SendString(err.Error())
 	}
 
@@ -218,7 +229,7 @@ func getLatestNotifications(c *fiber.Ctx) error {
                    LIMIT 1`
 	var ownerNotification ProductOwnerNotification
 	err = db.Get(&ownerNotification, ownerQuery, userID)
-	if err != nil && err.Error() != "sql: no rows in result set" {
+	if err != nil && err != sql.ErrNoRows {
 		return c.Status(500).SendString(err.Error())
 	}
 
@@ -237,6 +248,7 @@ func getAllNotifications(c *fiber.Ctx) error {
 	if userID == "" {
 		return c.Status(400).SendString("user_id query parameter is required")
 	}
+	log.Println("get all noti running and this is the userID", userID)
 
 	userQuery := `SELECT * FROM user_notifications 
                   WHERE user_id = $1 
