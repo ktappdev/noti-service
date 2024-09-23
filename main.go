@@ -23,6 +23,7 @@ type UserNotification struct {
 	NotificationType string    `db:"notification_type" json:"notification_type"`
 	CommentID        string    `db:"comment_id" json:"comment_id"`
 	ReviewID         string    `db:"review_id" json:"review_id"`
+	Body             string    `db:"body" json:"body"`
 }
 
 type ProductOwnerNotification struct {
