@@ -139,17 +139,6 @@ func createProductOwnerNotification(c *fiber.Ctx) error {
 		return c.Status(400).SendString("Owner does not exist")
 	}
 
-	// Check if the business exists and belongs to the owner
-	err = db.Get(&exists, "SELECT EXISTS(SELECT 1 FROM businesses WHERE id = $1 AND user_id = $2)", notification.BusinessID, notification.OwnerID)
-	if err != nil {
-		log.Println(err)
-		return c.Status(500).SendString(err.Error())
-	}
-	if !exists {
-		log.Println("Business does not exist or does not belong to the owner")
-		return c.Status(400).SendString("Business does not exist or does not belong to the owner")
-	}
-
 	query := `INSERT INTO product_owner_notifications (id, owner_id, product_id, product_name, business_id, review_title, from_name, from_id, read, comment_id, review_id, notification_type) 
               VALUES (:id, :owner_id, :product_id, :product_name, :business_id, :review_title, :from_name, :from_id, :read, :comment_id, :review_id, :notification_type) RETURNING id, created_at`
 	rows, err := db.NamedQuery(query, notification)
