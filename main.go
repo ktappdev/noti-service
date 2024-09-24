@@ -23,7 +23,6 @@ type UserNotification struct {
 	NotificationType string    `db:"notification_type" json:"notification_type"`
 	CommentID        string    `db:"comment_id" json:"comment_id"`
 	ReviewID         string    `db:"review_id" json:"review_id"`
-	Body             string    `db:"body" json:"body"`
 }
 
 type ProductOwnerNotification struct {
@@ -161,6 +160,7 @@ func createProductOwnerNotification(c *fiber.Ctx) error {
 }
 
 func createReplyNotification(c *fiber.Ctx) error {
+	log.Println("Raw incoming body:", string(c.Body()))
 	notification := new(UserNotification)
 	if err := c.BodyParser(notification); err != nil {
 		return c.Status(400).SendString(err.Error())
