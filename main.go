@@ -2,6 +2,7 @@ package main
 
 import (
 	"database/sql"
+	"fmt"
 	"log"
 	"os"
 	"time"
@@ -11,18 +12,21 @@ import (
 	"github.com/gofiber/fiber/v2/middleware/logger"
 	"github.com/jmoiron/sqlx"
 	"github.com/joho/godotenv"
+	"github.com/ktappdev/noti-service/reviewit"
 	_ "github.com/lib/pq"
 )
 
 type UserNotification struct {
 	ID               string    `db:"id" json:"id"`
-	UserID           string    `db:"user_id" json:"user_id"`
+	ParentUserID     string    `db:"parent_user_id" json:"parent_user_id"`
 	Content          string    `db:"content" json:"content"`
 	CreatedAt        time.Time `db:"created_at" json:"created_at"`
 	Read             bool      `db:"read" json:"read"`
 	NotificationType string    `db:"notification_type" json:"notification_type"`
 	CommentID        string    `db:"comment_id" json:"comment_id"`
 	ReviewID         string    `db:"review_id" json:"review_id"`
+	FromID           string    `db:"from_id" json:"from_id"`
+	ParentID         string    `db:"parent_id" json:"parent_id"`
 }
 
 type ProductOwnerNotification struct {
@@ -59,14 +63,16 @@ func createSchema() error {
 
     CREATE TABLE IF NOT EXISTS user_notifications (
         id VARCHAR(255) PRIMARY KEY,
-        user_id VARCHAR(255) NOT NULL,
+        parent_user_id VARCHAR(255) NOT NULL,
         content TEXT NOT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         read BOOLEAN DEFAULT FALSE,
         notification_type VARCHAR(50) NOT NULL,
         comment_id VARCHAR(255),
+        from_id VARCHAR(255),
         review_id VARCHAR(255),
-        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        parent_id VARCHAR(255),
+        FOREIGN KEY (parent_user_id) REFERENCES users(id) ON DELETE CASCADE
     );
 
     CREATE TABLE IF NOT EXISTS product_owner_notifications (
@@ -86,7 +92,7 @@ func createSchema() error {
         FOREIGN KEY (owner_id) REFERENCES users(id) ON DELETE CASCADE
     );
 
-    CREATE INDEX IF NOT EXISTS idx_user_notifications_user_id ON user_notifications(user_id);
+    CREATE INDEX IF NOT EXISTS idx_user_notifications_user_id ON user_notifications(parent_user_id);
     CREATE INDEX IF NOT EXISTS idx_user_notifications_created_at ON user_notifications(created_at);
     CREATE INDEX IF NOT EXISTS idx_product_owner_notifications_owner_id ON product_owner_notifications(owner_id);
     CREATE INDEX IF NOT EXISTS idx_product_owner_notifications_created_at ON product_owner_notifications(created_at);
@@ -160,7 +166,6 @@ func createProductOwnerNotification(c *fiber.Ctx) error {
 }
 
 func createReplyNotification(c *fiber.Ctx) error {
-	log.Println("Raw incoming body:", string(c.Body()))
 	notification := new(UserNotification)
 	if err := c.BodyParser(notification); err != nil {
 		return c.Status(400).SendString(err.Error())
@@ -170,9 +175,16 @@ func createReplyNotification(c *fiber.Ctx) error {
 	notification.NotificationType = "reply"
 	log.Printf("Creating reply notification: %+v", notification)
 
+	parentUserID, err := reviewit.GetParentCommentUserID(notification.ParentID)
+	if err != nil {
+		log.Printf("Error getting parent user ID: %v", err)
+		return c.Status(500).SendString(fmt.Sprintf("Error getting parent user ID: %v", err))
+	}
+	notification.ParentUserID = parentUserID
+
 	// Check if the user exists
 	var exists bool
-	err := db.Get(&exists, "SELECT EXISTS(SELECT 1 FROM users WHERE id = $1)", notification.UserID)
+	err = db.Get(&exists, "SELECT EXISTS(SELECT 1 FROM users WHERE id = $1)", notification.ParentUserID)
 	if err != nil {
 		log.Printf("Error checking user existence: %v", err)
 		return c.Status(500).SendString("Internal server error")
@@ -183,8 +195,8 @@ func createReplyNotification(c *fiber.Ctx) error {
 	}
 
 	// Insert the notification
-	query := `INSERT INTO user_notifications (id, user_id, content, read, notification_type, comment_id, review_id) 
-              VALUES (:id, :user_id, :content, :read, :notification_type, :comment_id, :review_id) RETURNING id, created_at`
+	query := `INSERT INTO user_notifications (id, parent_user_id, content, read, notification_type, comment_id, from_id, review_id, parent_id) 
+  VALUES (:id, :parent_user_id, :content, :read, :notification_type, :comment_id, :from_id, :review_id, :parent_id) RETURNING id, created_at`
 	rows, err := db.NamedQuery(query, notification)
 	if err != nil {
 		log.Printf("Error inserting notification: %v", err)
@@ -247,7 +259,7 @@ func getAllNotifications(c *fiber.Ctx) error {
 	log.Println("get all noti running and this is the userID", userID)
 
 	userQuery := `SELECT * FROM user_notifications 
-                  WHERE user_id = $1 
+                  WHERE parent_user_id = $1 
                   ORDER BY created_at DESC`
 	var userNotifications []UserNotification
 	err := db.Select(&userNotifications, userQuery, userID)
