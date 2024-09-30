@@ -28,6 +28,7 @@ type UserNotification struct {
 	FromID           string    `db:"from_id" json:"from_id"`
 	ParentID         string    `db:"parent_id" json:"parent_id"`
 	FromName         string    `db:"from_name" json:"from_name"`
+	ProductID        string    `db:"product_id" json:"product_id"`
 }
 
 type ProductOwnerNotification struct {
@@ -74,6 +75,7 @@ func createSchema() error {
         review_id VARCHAR(255),
         parent_id VARCHAR(255),
         from_name VARCHAR(255),
+        product_id VARCHAR(255),
         FOREIGN KEY (parent_user_id) REFERENCES users(id) ON DELETE CASCADE
     );
 
@@ -201,8 +203,8 @@ func createReplyNotification(c *fiber.Ctx) error {
 	}
 
 	// Insert the notification
-	query := `INSERT INTO user_notifications (id, parent_user_id, content, read, notification_type, comment_id, from_id, review_id, parent_id, from_name) 
-  VALUES (:id, :parent_user_id, :content, :read, :notification_type, :comment_id, :from_id, :review_id, :parent_id, :from_name) RETURNING id, created_at`
+	query := `INSERT INTO user_notifications (id, parent_user_id, content, read, notification_type, comment_id, from_id, review_id, parent_id, from_name, product_id) 
+  VALUES (:id, :parent_user_id, :content, :read, :notification_type, :comment_id, :from_id, :review_id, :parent_id, :from_name, :product_id) RETURNING id, created_at`
 	rows, err := db.NamedQuery(query, notification)
 	if err != nil {
 		log.Printf("Error inserting notification: %v", err)
