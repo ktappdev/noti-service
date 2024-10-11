@@ -264,7 +264,6 @@ func getAllNotifications(c *fiber.Ctx) error {
 	if userID == "" {
 		return c.Status(400).SendString("user_id query parameter is required")
 	}
-	log.Println("get all noti running and this is the userID", userID)
 
 	userQuery := `SELECT * FROM user_notifications 
                   WHERE parent_user_id = $1 
@@ -318,6 +317,50 @@ func deleteReadNotifications(c *fiber.Ctx) error {
 	})
 }
 
+func markNotificationAsRead(c *fiber.Ctx) error {
+	notificationID := c.Params("id")
+	notificationType := c.Query("type")
+
+	if notificationID == "" {
+		return c.Status(400).SendString("Notification ID is required")
+	}
+
+	if notificationType == "" {
+		return c.Status(400).SendString("Notification type is required")
+	}
+
+	var query string
+	var result sql.Result
+	var err error
+
+	switch notificationType {
+	case "user":
+		query = "UPDATE user_notifications SET read = true WHERE id = $1"
+	case "owner":
+		query = "UPDATE product_owner_notifications SET read = true WHERE id = $1"
+	default:
+		return c.Status(400).SendString("Invalid notification type")
+	}
+
+	result, err = db.Exec(query, notificationID)
+	if err != nil {
+		log.Printf("Error updating notification: %v", err)
+		return c.Status(500).SendString("Failed to update notification")
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		log.Printf("Error getting rows affected: %v", err)
+		return c.Status(500).SendString("Failed to get update result")
+	}
+
+	if rowsAffected == 0 {
+		return c.Status(404).SendString("Notification not found")
+	}
+
+	return c.SendString("Notification marked as read")
+}
+
 func main() {
 	if err := godotenv.Load(); err != nil {
 		log.Fatal("Error loading .env file")
@@ -356,6 +399,7 @@ func main() {
 	app.Get("/notifications/latest", getLatestNotifications)
 	app.Get("/notifications", getAllNotifications)
 	app.Delete("/notifications", deleteReadNotifications)
+	app.Post("/notifications/:id/read", markNotificationAsRead)
 
 	log.Fatal(app.Listen(":3001"))
 }
