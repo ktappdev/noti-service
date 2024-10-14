@@ -390,9 +390,9 @@ func main() {
 		AllowMethods: "GET,POST,HEAD,PUT,DELETE,PATCH",
 		AllowHeaders: "Origin, Content-Type, Accept",
 	}))
-	app.Use(logger.New(logger.Config{
-		Format: "[${ip}]:${port} ${status} - ${method} ${path}\n",
-	}))
+	// app.Use(logger.New(logger.Config{
+	// 	Format: "[${ip}]:${port} ${status} - ${method} ${path}\n",
+	// }))
 
 	app.Post("/users", createUser)
 	app.Post("/notifications/product-owner", createProductOwnerNotification)
