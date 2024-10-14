@@ -329,6 +329,7 @@ func markNotificationAsRead(c *fiber.Ctx) error {
 		return c.Status(400).SendString("Notification type is required")
 	}
 
+	fmt.Printf("%s - %s", notificationID, notificationType)
 	var query string
 	var result sql.Result
 	var err error
@@ -399,7 +400,7 @@ func main() {
 	app.Get("/notifications/latest", getLatestNotifications)
 	app.Get("/notifications", getAllNotifications)
 	app.Delete("/notifications", deleteReadNotifications)
-	app.Post("/notifications/:id/read", markNotificationAsRead)
+	app.Patch("/notifications/:id/read", markNotificationAsRead)
 
 	log.Fatal(app.Listen(":3001"))
 }
