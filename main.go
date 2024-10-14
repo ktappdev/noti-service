@@ -401,7 +401,7 @@ func main() {
 	app.Get("/notifications/latest", getLatestNotifications)
 	app.Get("/notifications", getAllNotifications)
 	app.Delete("/notifications", deleteReadNotifications)
-	app.Patch("/notifications/:id/read", markNotificationAsRead)
+	app.Post("/notifications/:id/read", markNotificationAsRead)
 
 	log.Fatal(app.Listen(":3001"))
 }
