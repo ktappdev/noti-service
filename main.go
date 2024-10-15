@@ -266,7 +266,7 @@ func getAllNotifications(c *fiber.Ctx) error {
 	}
 
 	userQuery := `SELECT * FROM user_notifications 
-                  WHERE parent_user_id = $1 
+                  WHERE parent_user_id = $1
                   ORDER BY created_at DESC`
 	var userNotifications []UserNotification
 	err := db.Select(&userNotifications, userQuery, userID)
@@ -275,7 +275,37 @@ func getAllNotifications(c *fiber.Ctx) error {
 	}
 
 	ownerQuery := `SELECT * FROM product_owner_notifications 
-                   WHERE owner_id = $1 
+                   WHERE owner_id = $1
+                   ORDER BY created_at DESC`
+	var ownerNotifications []ProductOwnerNotification
+	err = db.Select(&ownerNotifications, ownerQuery, userID)
+	if err != nil {
+		return c.Status(500).SendString(err.Error())
+	}
+
+	return c.JSON(fiber.Map{
+		"user_notifications":  userNotifications,
+		"owner_notifications": ownerNotifications,
+	})
+}
+
+func getAllUnreadNotifications(c *fiber.Ctx) error {
+	userID := c.Query("user_id")
+	if userID == "" {
+		return c.Status(400).SendString("user_id query parameter is required")
+	}
+
+	userQuery := `SELECT * FROM user_notifications 
+                  WHERE parent_user_id = $1 AND read = false
+                  ORDER BY created_at DESC`
+	var userNotifications []UserNotification
+	err := db.Select(&userNotifications, userQuery, userID)
+	if err != nil {
+		return c.Status(500).SendString(err.Error())
+	}
+
+	ownerQuery := `SELECT * FROM product_owner_notifications 
+                   WHERE owner_id = $1 AND read = false
                    ORDER BY created_at DESC`
 	var ownerNotifications []ProductOwnerNotification
 	err = db.Select(&ownerNotifications, ownerQuery, userID)
