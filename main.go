@@ -9,6 +9,7 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
+
 	// "github.com/gofiber/fiber/v2/middleware/logger"
 	"github.com/jmoiron/sqlx"
 	"github.com/joho/godotenv"
@@ -129,6 +130,7 @@ func createUser(c *fiber.Ctx) error {
 }
 
 func createProductOwnerNotification(c *fiber.Ctx) error {
+	fmt.Println("createProductOwnerNotification")
 	notification := new(ProductOwnerNotification)
 	if err := c.BodyParser(notification); err != nil {
 		return c.Status(400).SendString(err.Error())
@@ -136,6 +138,7 @@ func createProductOwnerNotification(c *fiber.Ctx) error {
 
 	// Set the notification type
 	notification.NotificationType = "review"
+	fmt.Println("this is the notification", notification)
 
 	// Check if the owner exists
 	var exists bool
@@ -149,7 +152,7 @@ func createProductOwnerNotification(c *fiber.Ctx) error {
 		return c.Status(400).SendString("Owner does not exist")
 	}
 
-	query := `INSERT INTO product_owner_notifications (id, owner_id, product_id, product_name, business_id, review_title, from_name, from_id, read, comment_id, review_id, notification_type) 
+	query := `INSERT INTO product_owner_notifications (id, owner_id, product_id, product_name, business_id, review_title, from_name, from_id, read, comment_id, review_id, notification_type)
               VALUES (:id, :owner_id, :product_id, :product_name, :business_id, :review_title, :from_name, :from_id, :read, :comment_id, :review_id, :notification_type) RETURNING id, created_at`
 	rows, err := db.NamedQuery(query, notification)
 	if err != nil {
@@ -203,7 +206,7 @@ func createReplyNotification(c *fiber.Ctx) error {
 	}
 
 	// Insert the notification
-	query := `INSERT INTO user_notifications (id, parent_user_id, content, read, notification_type, comment_id, from_id, review_id, parent_id, from_name, product_id) 
+	query := `INSERT INTO user_notifications (id, parent_user_id, content, read, notification_type, comment_id, from_id, review_id, parent_id, from_name, product_id)
   VALUES (:id, :parent_user_id, :content, :read, :notification_type, :comment_id, :from_id, :review_id, :parent_id, :from_name, :product_id) RETURNING id, created_at`
 	rows, err := db.NamedQuery(query, notification)
 	if err != nil {
@@ -229,9 +232,9 @@ func getLatestNotifications(c *fiber.Ctx) error {
 		return c.Status(400).SendString("user_id query parameter is required")
 	}
 
-	userQuery := `SELECT * FROM user_notifications 
-                  WHERE user_id = $1 
-                  ORDER BY created_at DESC 
+	userQuery := `SELECT * FROM user_notifications
+                  WHERE user_id = $1
+                  ORDER BY created_at DESC
                   LIMIT 1`
 	var userNotification UserNotification
 	err := db.Get(&userNotification, userQuery, userID)
@@ -239,9 +242,9 @@ func getLatestNotifications(c *fiber.Ctx) error {
 		return c.Status(500).SendString(err.Error())
 	}
 
-	ownerQuery := `SELECT * FROM product_owner_notifications 
-                   WHERE owner_id = $1 
-                   ORDER BY created_at DESC 
+	ownerQuery := `SELECT * FROM product_owner_notifications
+                   WHERE owner_id = $1
+                   ORDER BY created_at DESC
                    LIMIT 1`
 	var ownerNotification ProductOwnerNotification
 	err = db.Get(&ownerNotification, ownerQuery, userID)
@@ -265,7 +268,7 @@ func getAllNotifications(c *fiber.Ctx) error {
 		return c.Status(400).SendString("user_id query parameter is required")
 	}
 
-	userQuery := `SELECT * FROM user_notifications 
+	userQuery := `SELECT * FROM user_notifications
                   WHERE parent_user_id = $1
                   ORDER BY created_at DESC`
 	var userNotifications []UserNotification
@@ -274,7 +277,7 @@ func getAllNotifications(c *fiber.Ctx) error {
 		return c.Status(500).SendString(err.Error())
 	}
 
-	ownerQuery := `SELECT * FROM product_owner_notifications 
+	ownerQuery := `SELECT * FROM product_owner_notifications
                    WHERE owner_id = $1
                    ORDER BY created_at DESC`
 	var ownerNotifications []ProductOwnerNotification
@@ -295,7 +298,7 @@ func getAllUnreadNotifications(c *fiber.Ctx) error {
 		return c.Status(400).SendString("user_id query parameter is required")
 	}
 
-	userQuery := `SELECT * FROM user_notifications 
+	userQuery := `SELECT * FROM user_notifications
                   WHERE parent_user_id = $1 AND read = false
                   ORDER BY created_at DESC`
 	var userNotifications []UserNotification
@@ -304,7 +307,7 @@ func getAllUnreadNotifications(c *fiber.Ctx) error {
 		return c.Status(500).SendString(err.Error())
 	}
 
-	ownerQuery := `SELECT * FROM product_owner_notifications 
+	ownerQuery := `SELECT * FROM product_owner_notifications
                    WHERE owner_id = $1 AND read = false
                    ORDER BY created_at DESC`
 	var ownerNotifications []ProductOwnerNotification
