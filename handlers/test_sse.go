@@ -17,11 +17,21 @@ func TestSSEHandler() fiber.Handler {
 		c.Set("Content-Type", "text/event-stream")
 		c.Set("Cache-Control", "no-cache")
 		c.Set("Connection", "keep-alive")
-		c.Set("Transfer-Encoding", "chunked")
-		c.Set("X-Accel-Buffering", "no")
 
 		log.Printf("Test SSE connection started")
 
+		// Send initial message immediately
+		initialMsg := fmt.Sprintf("data: {\"message\": \"Test SSE connected\", \"timestamp\": \"%s\"}\n\n", 
+			time.Now().Format(time.RFC3339))
+		
+		if _, err := c.Write([]byte(initialMsg)); err != nil {
+			log.Printf("Error writing initial message: %v", err)
+			return err
+		}
+
+		log.Printf("Initial message sent, starting stream...")
+
+		// Use a simpler streaming approach
 		c.Context().SetBodyStreamWriter(fasthttp.StreamWriter(func(w *bufio.Writer) {
 			defer func() {
 				if r := recover(); r != nil {
@@ -30,27 +40,17 @@ func TestSSEHandler() fiber.Handler {
 				log.Printf("Test SSE connection ended")
 			}()
 
-			// Send initial connection message
-			initialMsg := fmt.Sprintf("data: {\"message\": \"Test SSE connected\", \"timestamp\": \"%s\"}\n\n", 
-				time.Now().Format(time.RFC3339))
-			
-			if _, err := w.WriteString(initialMsg); err != nil {
-				log.Printf("Error writing initial test message: %v", err)
-				return
-			}
-			if err := w.Flush(); err != nil {
-				log.Printf("Error flushing initial test message: %v", err)
+			// Validate writer is not nil
+			if w == nil {
+				log.Printf("StreamWriter received nil buffer")
 				return
 			}
 
-			log.Printf("Initial message sent successfully, setting up ticker...")
-
-			// Send a message every 2 seconds for 30 seconds
 			ticker := time.NewTicker(2 * time.Second)
 			defer ticker.Stop()
 			
 			counter := 0
-			maxMessages := 15 // 30 seconds worth
+			maxMessages := 10 // Reduced for testing
 
 			log.Printf("Starting SSE message loop")
 
@@ -61,31 +61,19 @@ func TestSSEHandler() fiber.Handler {
 					log.Printf("Sending test message %d", counter)
 					
 					if counter > maxMessages {
-						// Send final message and close
 						finalMsg := fmt.Sprintf("data: {\"message\": \"Test completed\", \"counter\": %d, \"timestamp\": \"%s\"}\n\n", 
 							counter, time.Now().Format(time.RFC3339))
-						if _, err := w.WriteString(finalMsg); err != nil {
-							log.Printf("Error writing final message: %v", err)
-						} else if err := w.Flush(); err != nil {
-							log.Printf("Error flushing final message: %v", err)
-						} else {
-							log.Printf("Test completed, sent %d messages", counter)
-						}
+						w.WriteString(finalMsg)
+						w.Flush()
+						log.Printf("Test completed, sent %d messages", counter)
 						return
 					}
 
-					// Send regular test message
 					testMsg := fmt.Sprintf("data: {\"message\": \"Test message %d\", \"counter\": %d, \"timestamp\": \"%s\"}\n\n", 
 						counter, counter, time.Now().Format(time.RFC3339))
 					
-					if _, err := w.WriteString(testMsg); err != nil {
-						log.Printf("Error writing test message %d: %v", counter, err)
-						return
-					}
-					if err := w.Flush(); err != nil {
-						log.Printf("Error flushing test message %d: %v", counter, err)
-						return
-					}
+					w.WriteString(testMsg)
+					w.Flush()
 					log.Printf("Successfully sent test message %d", counter)
 
 				case <-c.Context().Done():
