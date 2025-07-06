@@ -26,8 +26,6 @@ func StreamNotifications(db *sqlx.DB, hub *sse.SSEHub) fiber.Handler {
 		c.Set("Content-Type", "text/event-stream")
 		c.Set("Cache-Control", "no-cache")
 		c.Set("Connection", "keep-alive")
-		c.Set("X-Accel-Buffering", "no")        // Disable nginx/proxy buffering
-		c.Set("X-Cloudflare-Stream", "1")       // Tell Cloudflare this is a stream
 		// CORS headers are handled by the main middleware, don't override here
 
 		// Generate unique client ID
@@ -56,11 +54,6 @@ func StreamNotifications(db *sqlx.DB, hub *sse.SSEHub) fiber.Handler {
 		}
 		initialData, _ := json.Marshal(initialMsg)
 		c.Write([]byte(fmt.Sprintf("data: %s\n\n", initialData)))
-		
-		// Force flush to establish connection immediately
-		if flusher, ok := c.Response().BodyWriter().(interface{ Flush() }); ok {
-			flusher.Flush()
-		}
 
 		// Send existing unread notifications on connection
 		go func() {
