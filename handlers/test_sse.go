@@ -31,7 +31,7 @@ func TestSSEHandler() fiber.Handler {
 
 		log.Printf("Initial message sent, starting stream...")
 
-		// Use a simpler streaming approach
+		// Use a much simpler approach - just send a few messages with delays
 		c.Context().SetBodyStreamWriter(fasthttp.StreamWriter(func(w *bufio.Writer) {
 			defer func() {
 				if r := recover(); r != nil {
@@ -40,47 +40,33 @@ func TestSSEHandler() fiber.Handler {
 				log.Printf("Test SSE connection ended")
 			}()
 
-			// Validate writer is not nil
+			// Validate everything is not nil
 			if w == nil {
 				log.Printf("StreamWriter received nil buffer")
 				return
 			}
 
-			ticker := time.NewTicker(2 * time.Second)
-			defer ticker.Stop()
-			
-			counter := 0
-			maxMessages := 10 // Reduced for testing
+			log.Printf("Starting simple message sending...")
 
-			log.Printf("Starting SSE message loop")
-
-			for {
-				select {
-				case <-ticker.C:
-					counter++
-					log.Printf("Sending test message %d", counter)
-					
-					if counter > maxMessages {
-						finalMsg := fmt.Sprintf("data: {\"message\": \"Test completed\", \"counter\": %d, \"timestamp\": \"%s\"}\n\n", 
-							counter, time.Now().Format(time.RFC3339))
-						w.WriteString(finalMsg)
-						w.Flush()
-						log.Printf("Test completed, sent %d messages", counter)
-						return
-					}
-
-					testMsg := fmt.Sprintf("data: {\"message\": \"Test message %d\", \"counter\": %d, \"timestamp\": \"%s\"}\n\n", 
-						counter, counter, time.Now().Format(time.RFC3339))
-					
-					w.WriteString(testMsg)
-					w.Flush()
-					log.Printf("Successfully sent test message %d", counter)
-
-				case <-c.Context().Done():
-					log.Printf("Test SSE context cancelled after %d messages", counter)
-					return
+			// Send 5 messages with 2-second delays
+			for i := 1; i <= 5; i++ {
+				log.Printf("About to send message %d", i)
+				
+				// Use time.Sleep instead of ticker to avoid channel issues
+				if i > 1 {
+					time.Sleep(2 * time.Second)
 				}
+				
+				testMsg := fmt.Sprintf("data: {\"message\": \"Test message %d\", \"timestamp\": \"%s\"}\n\n", 
+					i, time.Now().Format(time.RFC3339))
+				
+				log.Printf("Writing message %d", i)
+				w.WriteString(testMsg)
+				w.Flush()
+				log.Printf("Successfully sent message %d", i)
 			}
+
+			log.Printf("All messages sent, ending connection")
 		}))
 
 		return nil
