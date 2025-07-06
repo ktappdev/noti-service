@@ -12,7 +12,7 @@ import (
 func GetParentCommentUserID(parentID string) (string, error) {
 	dbURL := os.Getenv("REVIEWIT_DATABASE_URL")
 	if dbURL == "" {
-		fmt.Println("REVIEWIT_DATABASE_URL environment variable is required")
+		return "", fmt.Errorf("REVIEWIT_DATABASE_URL environment variable is required")
 	}
 	// Connect to the database
 	db, err := sqlx.Connect("postgres", dbURL)

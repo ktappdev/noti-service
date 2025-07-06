@@ -76,7 +76,11 @@ func CreateReplyNotification(db *sqlx.DB, hub *sse.SSEHub) fiber.Handler {
 
 		parentUserID, err := reviewit.GetParentCommentUserID(notification.ParentID)
 		if err != nil {
-			log.Printf("Error getting parent user ID: %v", err)
+			log.Printf("ERROR getting parent user ID: %v", err)
+			// Check if it's a missing environment variable error
+			if err.Error() == "REVIEWIT_DATABASE_URL environment variable is required" {
+				return c.Status(500).SendString("ReviewIt database connection not configured. Please set REVIEWIT_DATABASE_URL environment variable.")
+			}
 			return c.Status(500).SendString(fmt.Sprintf("Error getting parent user ID: %v", err))
 		}
 		notification.ParentUserID = parentUserID
