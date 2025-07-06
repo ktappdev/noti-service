@@ -73,6 +73,9 @@ func main() {
 	
 	// SSE documentation route
 	app.Get("/sse-help", handlers.SSEHelpHandler())
+	
+	// Test SSE endpoint
+	app.Get("/test/sse", handlers.TestSSEHandler())
 
 	log.Printf("Server starting on port 3001...")
 	log.Printf("SSE endpoint available at: /notifications/stream?user_id=YOUR_USER_ID")
