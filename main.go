@@ -48,10 +48,10 @@ func main() {
 
 	app := fiber.New()
 	app.Use(cors.New(cors.Config{
-		AllowOrigins:     "https://reviewit.gy,http://localhost:3000,http://localhost:3001,http://127.0.0.1:3000",
+		AllowOrigins:     "*",
 		AllowMethods:     "GET,POST,HEAD,PUT,DELETE,PATCH,OPTIONS",
 		AllowHeaders:     "Origin, Content-Type, Accept, Cache-Control, Authorization, X-Requested-With",
-		AllowCredentials: true,
+		AllowCredentials: false,
 		ExposeHeaders:    "Content-Length, Content-Type",
 	}))
 	// app.Use(logger.New(logger.Config{
