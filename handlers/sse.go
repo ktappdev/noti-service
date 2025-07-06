@@ -61,22 +61,37 @@ func StreamNotifications(db *sqlx.DB, hub *sse.SSEHub) fiber.Handler {
 		initialResponse := fmt.Sprintf("data: %s\n\n", initialData)
 		c.Write([]byte(initialResponse))
 		
-		// Force the response to be sent immediately
-		c.Context().Response.SetBodyStreamWriter(fasthttp.StreamWriter(func(w *bufio.Writer) {
-			// Write the initial message first
-			w.WriteString(initialResponse)
-			w.Flush()
-			
+		// Use Fiber's streaming approach instead of FastHTTP directly
+		c.Context().SetBodyStreamWriter(fasthttp.StreamWriter(func(w *bufio.Writer) {
 			defer func() {
 				if r := recover(); r != nil {
 					log.Printf("SSE StreamWriter panic recovered: %v", r)
 				}
+				// Ensure client is unregistered on exit
+				hub.UnregisterClient(client)
+			}()
+			
+			// Write the initial message first
+			if _, err := w.WriteString(initialResponse); err != nil {
+				log.Printf("Error writing initial SSE message: %v", err)
+				return
+			}
+			if err := w.Flush(); err != nil {
+				log.Printf("Error flushing initial SSE message: %v", err)
+				return
+			}
+			
+			// Send existing notifications after initial message
+			go func() {
+				time.Sleep(100 * time.Millisecond)
+				sendExistingNotifications(db, client)
 			}()
 			
 			for {
 				select {
 				case message, ok := <-client.Channel:
 					if !ok {
+						log.Printf("SSE channel closed for user %s", userID)
 						return
 					}
 					if _, err := w.Write(message); err != nil {
@@ -88,24 +103,15 @@ func StreamNotifications(db *sqlx.DB, hub *sse.SSEHub) fiber.Handler {
 						return
 					}
 				case <-client.Done:
+					log.Printf("SSE client done signal received for user %s", userID)
 					return
 				case <-c.Context().Done():
+					log.Printf("SSE context done for user %s", userID)
 					return
 				}
 			}
 		}))
 		
-		// Send existing unread notifications on connection
-		go func() {
-			time.Sleep(100 * time.Millisecond) // Small delay to ensure connection is established
-			sendExistingNotifications(db, client)
-		}()
-
-		// Handle client disconnect
-		defer func() {
-			hub.UnregisterClient(client)
-		}()
-
 		return nil
 	}
 }
