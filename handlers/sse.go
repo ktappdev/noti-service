@@ -68,11 +68,27 @@ func StreamNotifications(db *sqlx.DB, hub *sse.SSEHub) fiber.Handler {
 
 		// Keep connection alive and send notifications
 		c.Context().SetBodyStreamWriter(fasthttp.StreamWriter(func(w *bufio.Writer) {
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("SSE StreamWriter panic recovered: %v", r)
+				}
+			}()
+			
 			for {
 				select {
-				case message := <-client.Channel:
-					w.Write(message)
-					w.Flush()
+				case message, ok := <-client.Channel:
+					if !ok {
+						// Channel closed, exit gracefully
+						return
+					}
+					if _, err := w.Write(message); err != nil {
+						log.Printf("Error writing SSE message: %v", err)
+						return
+					}
+					if err := w.Flush(); err != nil {
+						log.Printf("Error flushing SSE message: %v", err)
+						return
+					}
 				case <-client.Done:
 					return
 				case <-c.Context().Done():

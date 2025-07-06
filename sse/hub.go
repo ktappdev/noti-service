@@ -56,8 +56,20 @@ func (h *SSEHub) Run() {
 					if c.ID == client.ID {
 						// Remove client from slice
 						h.clients[client.UserID] = append(clients[:i], clients[i+1:]...)
-						close(c.Channel)
-						close(c.Done)
+						// Safely close channels
+						select {
+						case c.Done <- true:
+						default:
+						}
+						// Close channel in a goroutine to prevent blocking
+						go func(ch chan []byte) {
+							defer func() {
+								if r := recover(); r != nil {
+									log.Printf("Error closing SSE channel: %v", r)
+								}
+							}()
+							close(ch)
+						}(c.Channel)
 						break
 					}
 				}
