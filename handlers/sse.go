@@ -61,7 +61,7 @@ func StreamNotifications(db *sqlx.DB, hub *sse.SSEHub) fiber.Handler {
 		initialResponse := fmt.Sprintf("data: %s\n\n", initialData)
 		c.Write([]byte(initialResponse))
 		
-		// Use Fiber's streaming approach instead of FastHTTP directly
+		// Use the working streaming approach without problematic channels
 		c.Context().SetBodyStreamWriter(fasthttp.StreamWriter(func(w *bufio.Writer) {
 			defer func() {
 				if r := recover(); r != nil {
@@ -69,7 +69,14 @@ func StreamNotifications(db *sqlx.DB, hub *sse.SSEHub) fiber.Handler {
 				}
 				// Ensure client is unregistered on exit
 				hub.UnregisterClient(client)
+				log.Printf("SSE connection ended for user %s", userID)
 			}()
+			
+			// Validate writer
+			if w == nil {
+				log.Printf("SSE StreamWriter received nil buffer for user %s", userID)
+				return
+			}
 			
 			// Write the initial message first
 			if _, err := w.WriteString(initialResponse); err != nil {
@@ -81,13 +88,17 @@ func StreamNotifications(db *sqlx.DB, hub *sse.SSEHub) fiber.Handler {
 				return
 			}
 			
+			log.Printf("SSE initial message sent for user %s, starting message loop", userID)
+			
 			// Send existing notifications after initial message
 			go func() {
 				time.Sleep(100 * time.Millisecond)
 				sendExistingNotifications(db, client)
 			}()
 			
+			// Use polling approach instead of select with channels
 			for {
+				// Check for new messages with timeout
 				select {
 				case message, ok := <-client.Channel:
 					if !ok {
@@ -95,19 +106,37 @@ func StreamNotifications(db *sqlx.DB, hub *sse.SSEHub) fiber.Handler {
 						return
 					}
 					if _, err := w.Write(message); err != nil {
-						log.Printf("Error writing SSE message: %v", err)
+						log.Printf("Error writing SSE message for user %s: %v", userID, err)
 						return
 					}
 					if err := w.Flush(); err != nil {
-						log.Printf("Error flushing SSE message: %v", err)
+						log.Printf("Error flushing SSE message for user %s: %v", userID, err)
 						return
 					}
+					log.Printf("SSE message sent to user %s", userID)
+					
+				case <-time.After(30 * time.Second):
+					// Send heartbeat every 30 seconds to keep connection alive
+					heartbeat := fmt.Sprintf("data: {\"type\": \"heartbeat\", \"timestamp\": \"%s\"}\n\n", 
+						time.Now().Format(time.RFC3339))
+					if _, err := w.WriteString(heartbeat); err != nil {
+						log.Printf("Error writing heartbeat for user %s: %v", userID, err)
+						return
+					}
+					if err := w.Flush(); err != nil {
+						log.Printf("Error flushing heartbeat for user %s: %v", userID, err)
+						return
+					}
+					log.Printf("SSE heartbeat sent to user %s", userID)
+				}
+				
+				// Check if client is done (non-blocking)
+				select {
 				case <-client.Done:
 					log.Printf("SSE client done signal received for user %s", userID)
 					return
-				case <-c.Context().Done():
-					log.Printf("SSE context done for user %s", userID)
-					return
+				default:
+					// Continue loop
 				}
 			}
 		}))
