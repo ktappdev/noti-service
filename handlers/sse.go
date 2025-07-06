@@ -22,10 +22,13 @@ func StreamNotifications(db *sqlx.DB, hub *sse.SSEHub) fiber.Handler {
 			return c.Status(400).SendString("user_id query parameter is required")
 		}
 
-		// Set SSE headers
+		// Set SSE headers for proper streaming
 		c.Set("Content-Type", "text/event-stream")
 		c.Set("Cache-Control", "no-cache")
 		c.Set("Connection", "keep-alive")
+		c.Set("Transfer-Encoding", "chunked")
+		c.Set("X-Accel-Buffering", "no")  // Disable proxy buffering
+		// Don't set Content-Length - let it stream
 		// CORS headers are handled by the main middleware, don't override here
 
 		// Generate unique client ID
@@ -53,21 +56,17 @@ func StreamNotifications(db *sqlx.DB, hub *sse.SSEHub) fiber.Handler {
 			},
 		}
 		initialData, _ := json.Marshal(initialMsg)
-		c.Write([]byte(fmt.Sprintf("data: %s\n\n", initialData)))
-
-		// Send existing unread notifications on connection
-		go func() {
-			time.Sleep(100 * time.Millisecond) // Small delay to ensure connection is established
-			sendExistingNotifications(db, client)
-		}()
-
-		// Handle client disconnect
-		defer func() {
-			hub.UnregisterClient(client)
-		}()
-
-		// Keep connection alive and send notifications
-		c.Context().SetBodyStreamWriter(fasthttp.StreamWriter(func(w *bufio.Writer) {
+		
+		// Write initial message and flush immediately
+		initialResponse := fmt.Sprintf("data: %s\n\n", initialData)
+		c.Write([]byte(initialResponse))
+		
+		// Force the response to be sent immediately
+		c.Context().Response.SetBodyStreamWriter(fasthttp.StreamWriter(func(w *bufio.Writer) {
+			// Write the initial message first
+			w.WriteString(initialResponse)
+			w.Flush()
+			
 			defer func() {
 				if r := recover(); r != nil {
 					log.Printf("SSE StreamWriter panic recovered: %v", r)
@@ -78,7 +77,6 @@ func StreamNotifications(db *sqlx.DB, hub *sse.SSEHub) fiber.Handler {
 				select {
 				case message, ok := <-client.Channel:
 					if !ok {
-						// Channel closed, exit gracefully
 						return
 					}
 					if _, err := w.Write(message); err != nil {
@@ -96,6 +94,17 @@ func StreamNotifications(db *sqlx.DB, hub *sse.SSEHub) fiber.Handler {
 				}
 			}
 		}))
+		
+		// Send existing unread notifications on connection
+		go func() {
+			time.Sleep(100 * time.Millisecond) // Small delay to ensure connection is established
+			sendExistingNotifications(db, client)
+		}()
+
+		// Handle client disconnect
+		defer func() {
+			hub.UnregisterClient(client)
+		}()
 
 		return nil
 	}
