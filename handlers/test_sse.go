@@ -43,6 +43,8 @@ func TestSSEHandler() fiber.Handler {
 				return
 			}
 
+			log.Printf("Initial message sent successfully, setting up ticker...")
+
 			// Send a message every 2 seconds for 30 seconds
 			ticker := time.NewTicker(2 * time.Second)
 			defer ticker.Stop()
