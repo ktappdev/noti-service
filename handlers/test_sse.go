@@ -50,16 +50,25 @@ func TestSSEHandler() fiber.Handler {
 			counter := 0
 			maxMessages := 15 // 30 seconds worth
 
+			log.Printf("Starting SSE message loop")
+
 			for {
 				select {
 				case <-ticker.C:
 					counter++
+					log.Printf("Sending test message %d", counter)
+					
 					if counter > maxMessages {
 						// Send final message and close
 						finalMsg := fmt.Sprintf("data: {\"message\": \"Test completed\", \"counter\": %d, \"timestamp\": \"%s\"}\n\n", 
 							counter, time.Now().Format(time.RFC3339))
-						w.WriteString(finalMsg)
-						w.Flush()
+						if _, err := w.WriteString(finalMsg); err != nil {
+							log.Printf("Error writing final message: %v", err)
+						} else if err := w.Flush(); err != nil {
+							log.Printf("Error flushing final message: %v", err)
+						} else {
+							log.Printf("Test completed, sent %d messages", counter)
+						}
 						return
 					}
 
@@ -75,9 +84,10 @@ func TestSSEHandler() fiber.Handler {
 						log.Printf("Error flushing test message %d: %v", counter, err)
 						return
 					}
+					log.Printf("Successfully sent test message %d", counter)
 
 				case <-c.Context().Done():
-					log.Printf("Test SSE context cancelled")
+					log.Printf("Test SSE context cancelled after %d messages", counter)
 					return
 				}
 			}
