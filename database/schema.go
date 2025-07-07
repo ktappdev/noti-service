@@ -44,10 +44,26 @@ func CreateSchema(db *sqlx.DB) error {
         FOREIGN KEY (owner_id) REFERENCES users(id) ON DELETE CASCADE
     );
 
+    CREATE TABLE IF NOT EXISTS like_notifications (
+        id VARCHAR(255) PRIMARY KEY,
+        target_user_id VARCHAR(255) NOT NULL,
+        target_type VARCHAR(50) NOT NULL CHECK (target_type IN ('comment', 'review')),
+        target_id VARCHAR(255) NOT NULL,
+        from_id VARCHAR(255) NOT NULL,
+        from_name VARCHAR(255) NOT NULL,
+        product_id VARCHAR(255),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        read BOOLEAN DEFAULT FALSE,
+        FOREIGN KEY (target_user_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY (from_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
     CREATE INDEX IF NOT EXISTS idx_user_notifications_user_id ON user_notifications(parent_user_id);
     CREATE INDEX IF NOT EXISTS idx_user_notifications_created_at ON user_notifications(created_at);
     CREATE INDEX IF NOT EXISTS idx_product_owner_notifications_owner_id ON product_owner_notifications(owner_id);
     CREATE INDEX IF NOT EXISTS idx_product_owner_notifications_created_at ON product_owner_notifications(created_at);
+    CREATE INDEX IF NOT EXISTS idx_like_notifications_target_user_id ON like_notifications(target_user_id);
+    CREATE INDEX IF NOT EXISTS idx_like_notifications_created_at ON like_notifications(created_at);
     `
 	_, err := db.Exec(schema)
 	return err

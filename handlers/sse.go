@@ -69,7 +69,6 @@ func StreamNotifications(db *sqlx.DB, hub *sse.SSEHub) fiber.Handler {
 				}
 				// Ensure client is unregistered on exit
 				hub.UnregisterClient(client)
-				log.Printf("SSE connection ended for user %s", userID)
 			}()
 			
 			// Validate writer
@@ -88,7 +87,6 @@ func StreamNotifications(db *sqlx.DB, hub *sse.SSEHub) fiber.Handler {
 				return
 			}
 			
-			log.Printf("SSE initial message sent for user %s, starting message loop", userID)
 			
 			// Send existing notifications after initial message
 			go func() {
@@ -102,7 +100,6 @@ func StreamNotifications(db *sqlx.DB, hub *sse.SSEHub) fiber.Handler {
 				select {
 				case message, ok := <-client.Channel:
 					if !ok {
-						log.Printf("SSE channel closed for user %s", userID)
 						return
 					}
 					if _, err := w.Write(message); err != nil {
@@ -113,7 +110,6 @@ func StreamNotifications(db *sqlx.DB, hub *sse.SSEHub) fiber.Handler {
 						log.Printf("Error flushing SSE message for user %s: %v", userID, err)
 						return
 					}
-					log.Printf("SSE message sent to user %s", userID)
 					
 				case <-time.After(30 * time.Second):
 					// Send heartbeat every 30 seconds to keep connection alive
@@ -127,13 +123,11 @@ func StreamNotifications(db *sqlx.DB, hub *sse.SSEHub) fiber.Handler {
 						log.Printf("Error flushing heartbeat for user %s: %v", userID, err)
 						return
 					}
-					log.Printf("SSE heartbeat sent to user %s", userID)
 				}
 				
 				// Check if client is done (non-blocking)
 				select {
 				case <-client.Done:
-					log.Printf("SSE client done signal received for user %s", userID)
 					return
 				default:
 					// Continue loop

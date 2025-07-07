@@ -62,6 +62,7 @@ func main() {
 	app.Post("/users", handlers.CreateUser(db))
 	app.Post("/notifications/product-owner", handlers.CreateProductOwnerNotification(db, sseHub))
 	app.Post("/notifications/reply", handlers.CreateReplyNotification(db, sseHub))
+	app.Post("/notifications/like", handlers.CreateLikeNotification(db, sseHub))
 	app.Get("/notifications/latest", handlers.GetLatestNotifications(db))
 	app.Get("/notifications", handlers.GetAllNotifications(db))
 	app.Get("/notifications/unread", handlers.GetAllUnreadNotifications(db))
@@ -78,7 +79,5 @@ func main() {
 	app.Get("/test/sse", handlers.TestSSEHandler())
 
 	log.Printf("Server starting on port 3001...")
-	log.Printf("SSE endpoint available at: /notifications/stream?user_id=YOUR_USER_ID")
-	log.Printf("SSE documentation available at: /sse-help")
 	log.Fatal(app.Listen(":3001"))
 }

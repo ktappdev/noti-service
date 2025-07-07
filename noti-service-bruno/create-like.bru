@@ -1,0 +1,22 @@
+meta {
+  name: create-like
+  type: http
+  seq: 4
+}
+
+post {
+  url: http://localhost:3001/notifications/like
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "target_type": "comment",
+    "target_id": "comment_123",
+    "from_id": "user_456",
+    "from_name": "John Doe",
+    "product_id": "prod_789",
+    "read": false
+  }
+}

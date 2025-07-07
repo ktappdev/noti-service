@@ -122,6 +122,104 @@ func CreateReplyNotification(db *sqlx.DB, hub *sse.SSEHub) fiber.Handler {
 	}
 }
 
+// CreateLikeNotification creates a new like notification
+func CreateLikeNotification(db *sqlx.DB, hub *sse.SSEHub) fiber.Handler {
+	return func(c *fiber.Ctx) error {
+		notification := new(models.LikeNotification)
+		if err := c.BodyParser(notification); err != nil {
+			return c.Status(400).SendString(err.Error())
+		}
+
+		log.Printf("Creating like notification: %+v", notification)
+
+		// Validate target_type
+		if notification.TargetType != "comment" && notification.TargetType != "review" {
+			return c.Status(400).SendString("target_type must be 'comment' or 'review'")
+		}
+
+		// Get the target user ID based on target type and ID
+		var targetUserID string
+		var err error
+
+		if notification.TargetType == "comment" {
+			// For comments, get the user who made the comment
+			targetUserID, err = reviewit.GetCommentUserID(notification.TargetID)
+			if err != nil {
+				log.Printf("ERROR getting comment user ID: %v", err)
+				if err.Error() == "REVIEWIT_DATABASE_URL environment variable is required" {
+					return c.Status(500).SendString("ReviewIt database connection not configured. Please set REVIEWIT_DATABASE_URL environment variable.")
+				}
+				return c.Status(500).SendString(fmt.Sprintf("Error getting comment user ID: %v", err))
+			}
+		} else if notification.TargetType == "review" {
+			// For reviews, get the user who made the review
+			targetUserID, err = reviewit.GetReviewUserID(notification.TargetID)
+			if err != nil {
+				log.Printf("ERROR getting review user ID: %v", err)
+				if err.Error() == "REVIEWIT_DATABASE_URL environment variable is required" {
+					return c.Status(500).SendString("ReviewIt database connection not configured. Please set REVIEWIT_DATABASE_URL environment variable.")
+				}
+				return c.Status(500).SendString(fmt.Sprintf("Error getting review user ID: %v", err))
+			}
+		}
+
+		notification.TargetUserID = targetUserID
+
+		// Check if the target user exists
+		var exists bool
+		err = db.Get(&exists, "SELECT EXISTS(SELECT 1 FROM users WHERE id = $1)", notification.TargetUserID)
+		if err != nil {
+			log.Printf("Error checking target user existence: %v", err)
+			return c.Status(500).SendString("Internal server error")
+		}
+		if !exists {
+			log.Println("target user doesn't exist")
+			return c.Status(400).SendString("Target user does not exist")
+		}
+
+		// Check if the from user exists
+		err = db.Get(&exists, "SELECT EXISTS(SELECT 1 FROM users WHERE id = $1)", notification.FromID)
+		if err != nil {
+			log.Printf("Error checking from user existence: %v", err)
+			return c.Status(500).SendString("Internal server error")
+		}
+		if !exists {
+			log.Println("from user doesn't exist")
+			return c.Status(400).SendString("From user does not exist")
+		}
+
+		// Don't create notification if user likes their own content
+		if notification.TargetUserID == notification.FromID {
+			return c.Status(200).SendString("No notification created for self-like")
+		}
+
+		// Insert the notification
+		query := `INSERT INTO like_notifications (id, target_user_id, target_type, target_id, from_id, from_name, product_id, read)
+	              VALUES (gen_random_uuid(), :target_user_id, :target_type, :target_id, :from_id, :from_name, :product_id, :read) 
+	              RETURNING id, created_at`
+		
+		rows, err := db.NamedQuery(query, notification)
+		if err != nil {
+			log.Printf("Error inserting like notification: %v", err)
+			return c.Status(500).SendString("Failed to create like notification")
+		}
+		defer rows.Close()
+
+		if rows.Next() {
+			err = rows.Scan(&notification.ID, &notification.CreatedAt)
+			if err != nil {
+				log.Printf("Error scanning like notification result: %v", err)
+				return c.Status(500).SendString("Failed to retrieve created like notification")
+			}
+		}
+
+		// Broadcast to SSE clients
+		hub.BroadcastToUser(notification.TargetUserID, "new_notification", "like", notification)
+
+		return c.Status(201).JSON(notification)
+	}
+}
+
 // GetLatestNotifications gets the latest notifications for a user
 func GetLatestNotifications(db *sqlx.DB) fiber.Handler {
 	return func(c *fiber.Ctx) error {
