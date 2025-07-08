@@ -285,9 +285,19 @@ func GetAllNotifications(db *sqlx.DB) fiber.Handler {
 			return c.Status(500).SendString(err.Error())
 		}
 
+		likeQuery := `SELECT * FROM like_notifications
+	                  WHERE target_user_id = $1
+	                  ORDER BY created_at DESC`
+		var likeNotifications []models.LikeNotification
+		err = db.Select(&likeNotifications, likeQuery, userID)
+		if err != nil {
+			return c.Status(500).SendString(err.Error())
+		}
+
 		return c.JSON(fiber.Map{
 			"user_notifications":  userNotifications,
 			"owner_notifications": ownerNotifications,
+			"like_notifications":  likeNotifications,
 		})
 	}
 }
@@ -318,9 +328,19 @@ func GetAllUnreadNotifications(db *sqlx.DB) fiber.Handler {
 			return c.Status(500).SendString(err.Error())
 		}
 
+		likeQuery := `SELECT * FROM like_notifications
+	                  WHERE target_user_id = $1 AND read = false
+	                  ORDER BY created_at DESC`
+		var likeNotifications []models.LikeNotification
+		err = db.Select(&likeNotifications, likeQuery, userID)
+		if err != nil {
+			return c.Status(500).SendString(err.Error())
+		}
+
 		return c.JSON(fiber.Map{
 			"user_notifications":  userNotifications,
 			"owner_notifications": ownerNotifications,
+			"like_notifications":  likeNotifications,
 		})
 	}
 }
@@ -333,7 +353,7 @@ func DeleteReadNotifications(db *sqlx.DB) fiber.Handler {
 			return c.Status(400).SendString("user_id query parameter is required")
 		}
 
-		userQuery := `DELETE FROM user_notifications WHERE user_id = $1 AND read = true RETURNING *`
+		userQuery := `DELETE FROM user_notifications WHERE parent_user_id = $1 AND read = true RETURNING *`
 		var deletedUserNotifications []models.UserNotification
 		err := db.Select(&deletedUserNotifications, userQuery, userID)
 		if err != nil {
@@ -347,11 +367,20 @@ func DeleteReadNotifications(db *sqlx.DB) fiber.Handler {
 			return c.Status(500).SendString(err.Error())
 		}
 
+		likeQuery := `DELETE FROM like_notifications WHERE target_user_id = $1 AND read = true RETURNING *`
+		var deletedLikeNotifications []models.LikeNotification
+		err = db.Select(&deletedLikeNotifications, likeQuery, userID)
+		if err != nil {
+			return c.Status(500).SendString(err.Error())
+		}
+
 		return c.JSON(fiber.Map{
 			"deleted_user_notifications":  len(deletedUserNotifications),
 			"deleted_owner_notifications": len(deletedOwnerNotifications),
+			"deleted_like_notifications":  len(deletedLikeNotifications),
 			"user_notifications":          deletedUserNotifications,
 			"owner_notifications":         deletedOwnerNotifications,
+			"like_notifications":          deletedLikeNotifications,
 		})
 	}
 }
@@ -380,6 +409,8 @@ func MarkNotificationAsRead(db *sqlx.DB, hub *sse.SSEHub) fiber.Handler {
 			query = "UPDATE user_notifications SET read = true WHERE id = $1"
 		case "owner":
 			query = "UPDATE product_owner_notifications SET read = true WHERE id = $1"
+		case "like":
+			query = "UPDATE like_notifications SET read = true WHERE id = $1"
 		default:
 			return c.Status(400).SendString("Invalid notification type")
 		}
@@ -412,8 +443,10 @@ func MarkNotificationAsRead(db *sqlx.DB, hub *sse.SSEHub) fiber.Handler {
 		var userID string
 		if notificationType == "user" {
 			err = db.Get(&userID, "SELECT parent_user_id FROM user_notifications WHERE id = $1", notificationID)
-		} else {
+		} else if notificationType == "owner" {
 			err = db.Get(&userID, "SELECT owner_id FROM product_owner_notifications WHERE id = $1", notificationID)
+		} else if notificationType == "like" {
+			err = db.Get(&userID, "SELECT target_user_id FROM like_notifications WHERE id = $1", notificationID)
 		}
 
 		if err == nil {
