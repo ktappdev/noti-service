@@ -48,10 +48,10 @@ func main() {
 
 	app := fiber.New()
 	app.Use(cors.New(cors.Config{
-		AllowOrigins:     "https://reviewit.gy,http://localhost:3000,http://localhost:3001,http://127.0.0.1:3000",
+		AllowOrigins:     "*",
 		AllowMethods:     "GET,POST,HEAD,PUT,DELETE,PATCH,OPTIONS",
 		AllowHeaders:     "Origin, Content-Type, Accept, Cache-Control, Authorization, X-Requested-With",
-		AllowCredentials: true,
+		AllowCredentials: false,
 		ExposeHeaders:    "Content-Length, Content-Type",
 	}))
 	// app.Use(logger.New(logger.Config{
@@ -62,20 +62,22 @@ func main() {
 	app.Post("/users", handlers.CreateUser(db))
 	app.Post("/notifications/product-owner", handlers.CreateProductOwnerNotification(db, sseHub))
 	app.Post("/notifications/reply", handlers.CreateReplyNotification(db, sseHub))
+	app.Post("/notifications/like", handlers.CreateLikeNotification(db, sseHub))
 	app.Get("/notifications/latest", handlers.GetLatestNotifications(db))
 	app.Get("/notifications", handlers.GetAllNotifications(db))
 	app.Get("/notifications/unread", handlers.GetAllUnreadNotifications(db))
 	app.Delete("/notifications", handlers.DeleteReadNotifications(db))
-	app.Post("/notifications/:id/read", handlers.MarkNotificationAsRead(db, sseHub))
+	app.Put("/notifications/:id/read", handlers.MarkNotificationAsRead(db, sseHub))
 
 	// SSE route
 	app.Get("/notifications/stream", handlers.StreamNotifications(db, sseHub))
 	
 	// SSE documentation route
 	app.Get("/sse-help", handlers.SSEHelpHandler())
+	
+	// Test SSE endpoint
+	app.Get("/test/sse", handlers.TestSSEHandler())
 
 	log.Printf("Server starting on port 3001...")
-	log.Printf("SSE endpoint available at: /notifications/stream?user_id=YOUR_USER_ID")
-	log.Printf("SSE documentation available at: /sse-help")
 	log.Fatal(app.Listen(":3001"))
 }

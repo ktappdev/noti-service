@@ -47,7 +47,6 @@ func (h *SSEHub) Run() {
 			}
 			h.clients[client.UserID] = append(h.clients[client.UserID], client)
 			h.mutex.Unlock()
-			log.Printf("SSE client registered for user %s (total clients: %d)", client.UserID, len(h.clients[client.UserID]))
 
 		case client := <-h.unregister:
 			h.mutex.Lock()
@@ -56,8 +55,20 @@ func (h *SSEHub) Run() {
 					if c.ID == client.ID {
 						// Remove client from slice
 						h.clients[client.UserID] = append(clients[:i], clients[i+1:]...)
-						close(c.Channel)
-						close(c.Done)
+						// Safely close channels
+						select {
+						case c.Done <- true:
+						default:
+						}
+						// Close channel in a goroutine to prevent blocking
+						go func(ch chan []byte) {
+							defer func() {
+								if r := recover(); r != nil {
+									log.Printf("Error closing SSE channel: %v", r)
+								}
+							}()
+							close(ch)
+						}(c.Channel)
 						break
 					}
 				}
@@ -67,7 +78,6 @@ func (h *SSEHub) Run() {
 				}
 			}
 			h.mutex.Unlock()
-			log.Printf("SSE client unregistered for user %s", client.UserID)
 
 		case message := <-h.broadcast:
 			h.mutex.RLock()
@@ -85,7 +95,6 @@ func (h *SSEHub) Run() {
 					case client.Channel <- []byte(sseData):
 					default:
 						// Client channel is full, skip
-						log.Printf("SSE client channel full for user %s", message.UserID)
 					}
 				}
 			}
@@ -106,7 +115,6 @@ func (h *SSEHub) BroadcastToUser(userID string, event string, notificationType s
 	select {
 	case h.broadcast <- message:
 	default:
-		log.Printf("SSE broadcast channel full, dropping message for user %s", userID)
 	}
 }
 

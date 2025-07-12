@@ -42,10 +42,23 @@ type User struct {
 	FullName string `db:"full_name" json:"full_name"`
 }
 
+// LikeNotification represents a like notification
+type LikeNotification struct {
+	ID           string    `db:"id" json:"id"`
+	TargetUserID string    `db:"target_user_id" json:"target_user_id"` // User who owns the liked content
+	TargetType   string    `db:"target_type" json:"target_type"`       // "comment" or "review"
+	TargetID     string    `db:"target_id" json:"target_id"`           // ID of the liked content
+	FromID       string    `db:"from_id" json:"from_id"`               // User who liked
+	FromName     string    `db:"from_name" json:"from_name"`           // Name of user who liked
+	ProductID    string    `db:"product_id" json:"product_id"`         // Product context
+	CreatedAt    time.Time `db:"created_at" json:"created_at"`
+	Read         bool      `db:"read" json:"read"`
+}
+
 // NotificationMessage represents a message sent through SSE
 type NotificationMessage struct {
 	UserID       string      `json:"user_id"`
-	Type         string      `json:"type"` // "user" or "owner"
+	Type         string      `json:"type"` // "user", "owner", or "like"
 	Notification interface{} `json:"notification"`
 	Event        string      `json:"event"` // "new_notification", "notification_read", etc.
 }

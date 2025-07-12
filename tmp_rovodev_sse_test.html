@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SSE Test Page</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+            font-weight: bold;
+        }
+        .connected { background-color: #d4edda; color: #155724; }
+        .disconnected { background-color: #f8d7da; color: #721c24; }
+        .connecting { background-color: #fff3cd; color: #856404; }
+        .message {
+            background-color: #e7f3ff;
+            border-left: 4px solid #007bff;
+            padding: 10px;
+            margin: 5px 0;
+            font-family: monospace;
+        }
+        .error {
+            background-color: #f8d7da;
+            border-left: 4px solid #dc3545;
+            padding: 10px;
+            margin: 5px 0;
+            color: #721c24;
+        }
+        button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover { background-color: #0056b3; }
+        button:disabled { background-color: #6c757d; cursor: not-allowed; }
+        #messages {
+            max-height: 400px;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+            padding: 10px;
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔄 SSE Test Page</h1>
+        <p>This page tests the Server-Sent Events (SSE) functionality.</p>
+        
+        <div>
+            <button id="connectBtn" onclick="connectSSE()">Connect to Test SSE</button>
+            <button id="disconnectBtn" onclick="disconnectSSE()" disabled>Disconnect</button>
+            <button onclick="clearMessages()">Clear Messages</button>
+        </div>
+        
+        <div id="status" class="status disconnected">Disconnected</div>
+        
+        <h3>📨 Messages:</h3>
+        <div id="messages"></div>
+        
+        <h3>📊 Statistics:</h3>
+        <div id="stats">
+            <p>Messages received: <span id="messageCount">0</span></p>
+            <p>Connection time: <span id="connectionTime">0</span> seconds</p>
+            <p>Last message: <span id="lastMessage">None</span></p>
+        </div>
+    </div>
+
+    <script>
+        let eventSource = null;
+        let messageCount = 0;
+        let connectionStartTime = null;
+        let connectionTimer = null;
+
+        function updateStatus(status, className) {
+            const statusEl = document.getElementById('status');
+            statusEl.textContent = status;
+            statusEl.className = `status ${className}`;
+        }
+
+        function addMessage(message, isError = false) {
+            const messagesEl = document.getElementById('messages');
+            const messageEl = document.createElement('div');
+            messageEl.className = isError ? 'error' : 'message';
+            messageEl.innerHTML = `<strong>${new Date().toLocaleTimeString()}</strong>: ${message}`;
+            messagesEl.appendChild(messageEl);
+            messagesEl.scrollTop = messagesEl.scrollHeight;
+            
+            if (!isError) {
+                messageCount++;
+                document.getElementById('messageCount').textContent = messageCount;
+                document.getElementById('lastMessage').textContent = new Date().toLocaleTimeString();
+            }
+        }
+
+        function updateConnectionTime() {
+            if (connectionStartTime) {
+                const elapsed = Math.floor((Date.now() - connectionStartTime) / 1000);
+                document.getElementById('connectionTime').textContent = elapsed;
+            }
+        }
+
+        function connectSSE() {
+            if (eventSource) {
+                disconnectSSE();
+            }
+
+            updateStatus('Connecting...', 'connecting');
+            addMessage('🔄 Attempting to connect to SSE...');
+
+            // Use the test endpoint
+            const url = 'https://notifications.reviewit.gy/test/sse';
+            eventSource = new EventSource(url);
+
+            eventSource.onopen = function(event) {
+                updateStatus('Connected ✅', 'connected');
+                addMessage('✅ SSE connection opened successfully!');
+                connectionStartTime = Date.now();
+                connectionTimer = setInterval(updateConnectionTime, 1000);
+                
+                document.getElementById('connectBtn').disabled = true;
+                document.getElementById('disconnectBtn').disabled = false;
+            };
+
+            eventSource.onmessage = function(event) {
+                try {
+                    const data = JSON.parse(event.data);
+                    addMessage(`📨 ${data.message} (${data.timestamp || 'no timestamp'})`);
+                } catch (e) {
+                    addMessage(`📨 Raw message: ${event.data}`);
+                }
+            };
+
+            eventSource.onerror = function(event) {
+                addMessage(`❌ SSE error occurred. ReadyState: ${eventSource.readyState}`, true);
+                
+                if (eventSource.readyState === EventSource.CLOSED) {
+                    updateStatus('Connection closed', 'disconnected');
+                    disconnectSSE();
+                } else {
+                    updateStatus('Connection error', 'disconnected');
+                }
+            };
+        }
+
+        function disconnectSSE() {
+            if (eventSource) {
+                eventSource.close();
+                eventSource = null;
+            }
+            
+            updateStatus('Disconnected', 'disconnected');
+            addMessage('🔌 SSE connection closed');
+            
+            if (connectionTimer) {
+                clearInterval(connectionTimer);
+                connectionTimer = null;
+            }
+            
+            document.getElementById('connectBtn').disabled = false;
+            document.getElementById('disconnectBtn').disabled = true;
+        }
+
+        function clearMessages() {
+            document.getElementById('messages').innerHTML = '';
+            messageCount = 0;
+            document.getElementById('messageCount').textContent = '0';
+            document.getElementById('lastMessage').textContent = 'None';
+        }
+
+        // Auto-connect on page load for testing
+        window.addEventListener('load', function() {
+            addMessage('🚀 Page loaded. Click "Connect to Test SSE" to start the test.');
+        });
+    </script>
+</body>
+</html>

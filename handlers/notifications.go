@@ -76,7 +76,11 @@ func CreateReplyNotification(db *sqlx.DB, hub *sse.SSEHub) fiber.Handler {
 
 		parentUserID, err := reviewit.GetParentCommentUserID(notification.ParentID)
 		if err != nil {
-			log.Printf("Error getting parent user ID: %v", err)
+			log.Printf("ERROR getting parent user ID: %v", err)
+			// Check if it's a missing environment variable error
+			if err.Error() == "REVIEWIT_DATABASE_URL environment variable is required" {
+				return c.Status(500).SendString("ReviewIt database connection not configured. Please set REVIEWIT_DATABASE_URL environment variable.")
+			}
 			return c.Status(500).SendString(fmt.Sprintf("Error getting parent user ID: %v", err))
 		}
 		notification.ParentUserID = parentUserID
@@ -113,6 +117,104 @@ func CreateReplyNotification(db *sqlx.DB, hub *sse.SSEHub) fiber.Handler {
 
 		// Broadcast to SSE clients
 		hub.BroadcastToUser(notification.ParentUserID, "new_notification", "user", notification)
+
+		return c.Status(201).JSON(notification)
+	}
+}
+
+// CreateLikeNotification creates a new like notification
+func CreateLikeNotification(db *sqlx.DB, hub *sse.SSEHub) fiber.Handler {
+	return func(c *fiber.Ctx) error {
+		notification := new(models.LikeNotification)
+		if err := c.BodyParser(notification); err != nil {
+			return c.Status(400).SendString(err.Error())
+		}
+
+		log.Printf("Creating like notification: %+v", notification)
+
+		// Validate target_type
+		if notification.TargetType != "comment" && notification.TargetType != "review" {
+			return c.Status(400).SendString("target_type must be 'comment' or 'review'")
+		}
+
+		// Get the target user ID based on target type and ID
+		var targetUserID string
+		var err error
+
+		if notification.TargetType == "comment" {
+			// For comments, get the user who made the comment
+			targetUserID, err = reviewit.GetCommentUserID(notification.TargetID)
+			if err != nil {
+				log.Printf("ERROR getting comment user ID: %v", err)
+				if err.Error() == "REVIEWIT_DATABASE_URL environment variable is required" {
+					return c.Status(500).SendString("ReviewIt database connection not configured. Please set REVIEWIT_DATABASE_URL environment variable.")
+				}
+				return c.Status(500).SendString(fmt.Sprintf("Error getting comment user ID: %v", err))
+			}
+		} else if notification.TargetType == "review" {
+			// For reviews, get the user who made the review
+			targetUserID, err = reviewit.GetReviewUserID(notification.TargetID)
+			if err != nil {
+				log.Printf("ERROR getting review user ID: %v", err)
+				if err.Error() == "REVIEWIT_DATABASE_URL environment variable is required" {
+					return c.Status(500).SendString("ReviewIt database connection not configured. Please set REVIEWIT_DATABASE_URL environment variable.")
+				}
+				return c.Status(500).SendString(fmt.Sprintf("Error getting review user ID: %v", err))
+			}
+		}
+
+		notification.TargetUserID = targetUserID
+
+		// Check if the target user exists
+		var exists bool
+		err = db.Get(&exists, "SELECT EXISTS(SELECT 1 FROM users WHERE id = $1)", notification.TargetUserID)
+		if err != nil {
+			log.Printf("Error checking target user existence: %v", err)
+			return c.Status(500).SendString("Internal server error")
+		}
+		if !exists {
+			log.Println("target user doesn't exist")
+			return c.Status(400).SendString("Target user does not exist")
+		}
+
+		// Check if the from user exists
+		err = db.Get(&exists, "SELECT EXISTS(SELECT 1 FROM users WHERE id = $1)", notification.FromID)
+		if err != nil {
+			log.Printf("Error checking from user existence: %v", err)
+			return c.Status(500).SendString("Internal server error")
+		}
+		if !exists {
+			log.Println("from user doesn't exist")
+			return c.Status(400).SendString("From user does not exist")
+		}
+
+		// Don't create notification if user likes their own content
+		if notification.TargetUserID == notification.FromID {
+			return c.Status(200).SendString("No notification created for self-like")
+		}
+
+		// Insert the notification
+		query := `INSERT INTO like_notifications (id, target_user_id, target_type, target_id, from_id, from_name, product_id, read)
+	              VALUES (gen_random_uuid(), :target_user_id, :target_type, :target_id, :from_id, :from_name, :product_id, :read) 
+	              RETURNING id, created_at`
+		
+		rows, err := db.NamedQuery(query, notification)
+		if err != nil {
+			log.Printf("Error inserting like notification: %v", err)
+			return c.Status(500).SendString("Failed to create like notification")
+		}
+		defer rows.Close()
+
+		if rows.Next() {
+			err = rows.Scan(&notification.ID, &notification.CreatedAt)
+			if err != nil {
+				log.Printf("Error scanning like notification result: %v", err)
+				return c.Status(500).SendString("Failed to retrieve created like notification")
+			}
+		}
+
+		// Broadcast to SSE clients
+		hub.BroadcastToUser(notification.TargetUserID, "new_notification", "like", notification)
 
 		return c.Status(201).JSON(notification)
 	}
@@ -183,9 +285,19 @@ func GetAllNotifications(db *sqlx.DB) fiber.Handler {
 			return c.Status(500).SendString(err.Error())
 		}
 
+		likeQuery := `SELECT * FROM like_notifications
+	                  WHERE target_user_id = $1
+	                  ORDER BY created_at DESC`
+		var likeNotifications []models.LikeNotification
+		err = db.Select(&likeNotifications, likeQuery, userID)
+		if err != nil {
+			return c.Status(500).SendString(err.Error())
+		}
+
 		return c.JSON(fiber.Map{
 			"user_notifications":  userNotifications,
 			"owner_notifications": ownerNotifications,
+			"like_notifications":  likeNotifications,
 		})
 	}
 }
@@ -216,9 +328,19 @@ func GetAllUnreadNotifications(db *sqlx.DB) fiber.Handler {
 			return c.Status(500).SendString(err.Error())
 		}
 
+		likeQuery := `SELECT * FROM like_notifications
+	                  WHERE target_user_id = $1 AND read = false
+	                  ORDER BY created_at DESC`
+		var likeNotifications []models.LikeNotification
+		err = db.Select(&likeNotifications, likeQuery, userID)
+		if err != nil {
+			return c.Status(500).SendString(err.Error())
+		}
+
 		return c.JSON(fiber.Map{
 			"user_notifications":  userNotifications,
 			"owner_notifications": ownerNotifications,
+			"like_notifications":  likeNotifications,
 		})
 	}
 }
@@ -231,7 +353,7 @@ func DeleteReadNotifications(db *sqlx.DB) fiber.Handler {
 			return c.Status(400).SendString("user_id query parameter is required")
 		}
 
-		userQuery := `DELETE FROM user_notifications WHERE user_id = $1 AND read = true RETURNING *`
+		userQuery := `DELETE FROM user_notifications WHERE parent_user_id = $1 AND read = true RETURNING *`
 		var deletedUserNotifications []models.UserNotification
 		err := db.Select(&deletedUserNotifications, userQuery, userID)
 		if err != nil {
@@ -245,11 +367,20 @@ func DeleteReadNotifications(db *sqlx.DB) fiber.Handler {
 			return c.Status(500).SendString(err.Error())
 		}
 
+		likeQuery := `DELETE FROM like_notifications WHERE target_user_id = $1 AND read = true RETURNING *`
+		var deletedLikeNotifications []models.LikeNotification
+		err = db.Select(&deletedLikeNotifications, likeQuery, userID)
+		if err != nil {
+			return c.Status(500).SendString(err.Error())
+		}
+
 		return c.JSON(fiber.Map{
 			"deleted_user_notifications":  len(deletedUserNotifications),
 			"deleted_owner_notifications": len(deletedOwnerNotifications),
+			"deleted_like_notifications":  len(deletedLikeNotifications),
 			"user_notifications":          deletedUserNotifications,
 			"owner_notifications":         deletedOwnerNotifications,
+			"like_notifications":          deletedLikeNotifications,
 		})
 	}
 }
@@ -278,6 +409,8 @@ func MarkNotificationAsRead(db *sqlx.DB, hub *sse.SSEHub) fiber.Handler {
 			query = "UPDATE user_notifications SET read = true WHERE id = $1"
 		case "owner":
 			query = "UPDATE product_owner_notifications SET read = true WHERE id = $1"
+		case "like":
+			query = "UPDATE like_notifications SET read = true WHERE id = $1"
 		default:
 			return c.Status(400).SendString("Invalid notification type")
 		}
@@ -310,8 +443,10 @@ func MarkNotificationAsRead(db *sqlx.DB, hub *sse.SSEHub) fiber.Handler {
 		var userID string
 		if notificationType == "user" {
 			err = db.Get(&userID, "SELECT parent_user_id FROM user_notifications WHERE id = $1", notificationID)
-		} else {
+		} else if notificationType == "owner" {
 			err = db.Get(&userID, "SELECT owner_id FROM product_owner_notifications WHERE id = $1", notificationID)
+		} else if notificationType == "like" {
+			err = db.Get(&userID, "SELECT target_user_id FROM like_notifications WHERE id = $1", notificationID)
 		}
 
 		if err == nil {

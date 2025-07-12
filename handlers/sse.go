@@ -22,10 +22,13 @@ func StreamNotifications(db *sqlx.DB, hub *sse.SSEHub) fiber.Handler {
 			return c.Status(400).SendString("user_id query parameter is required")
 		}
 
-		// Set SSE headers
+		// Set SSE headers for proper streaming
 		c.Set("Content-Type", "text/event-stream")
 		c.Set("Cache-Control", "no-cache")
 		c.Set("Connection", "keep-alive")
+		c.Set("Transfer-Encoding", "chunked")
+		c.Set("X-Accel-Buffering", "no")  // Disable proxy buffering
+		// Don't set Content-Length - let it stream
 		// CORS headers are handled by the main middleware, don't override here
 
 		// Generate unique client ID
@@ -42,7 +45,7 @@ func StreamNotifications(db *sqlx.DB, hub *sse.SSEHub) fiber.Handler {
 		// Register client
 		hub.RegisterClient(client)
 
-		// Send initial connection message
+		// Send initial connection message immediately to establish stream
 		initialMsg := models.NotificationMessage{
 			UserID: userID,
 			Type:   "system",
@@ -53,34 +56,85 @@ func StreamNotifications(db *sqlx.DB, hub *sse.SSEHub) fiber.Handler {
 			},
 		}
 		initialData, _ := json.Marshal(initialMsg)
-		c.Write([]byte(fmt.Sprintf("data: %s\n\n", initialData)))
-
-		// Send existing unread notifications on connection
-		go func() {
-			time.Sleep(100 * time.Millisecond) // Small delay to ensure connection is established
-			sendExistingNotifications(db, client)
-		}()
-
-		// Handle client disconnect
-		defer func() {
-			hub.UnregisterClient(client)
-		}()
-
-		// Keep connection alive and send notifications
+		
+		// Write initial message and flush immediately
+		initialResponse := fmt.Sprintf("data: %s\n\n", initialData)
+		c.Write([]byte(initialResponse))
+		
+		// Use the working streaming approach without problematic channels
 		c.Context().SetBodyStreamWriter(fasthttp.StreamWriter(func(w *bufio.Writer) {
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("SSE StreamWriter panic recovered: %v", r)
+				}
+				// Ensure client is unregistered on exit
+				hub.UnregisterClient(client)
+			}()
+			
+			// Validate writer
+			if w == nil {
+				log.Printf("SSE StreamWriter received nil buffer for user %s", userID)
+				return
+			}
+			
+			// Write the initial message first
+			if _, err := w.WriteString(initialResponse); err != nil {
+				log.Printf("Error writing initial SSE message: %v", err)
+				return
+			}
+			if err := w.Flush(); err != nil {
+				log.Printf("Error flushing initial SSE message: %v", err)
+				return
+			}
+			
+			
+			// Send existing notifications after initial message
+			go func() {
+				time.Sleep(100 * time.Millisecond)
+				sendExistingNotifications(db, client)
+			}()
+			
+			// Use polling approach instead of select with channels
 			for {
+				// Check for new messages with timeout
 				select {
-				case message := <-client.Channel:
-					w.Write(message)
-					w.Flush()
+				case message, ok := <-client.Channel:
+					if !ok {
+						return
+					}
+					if _, err := w.Write(message); err != nil {
+						log.Printf("Error writing SSE message for user %s: %v", userID, err)
+						return
+					}
+					if err := w.Flush(); err != nil {
+						log.Printf("Error flushing SSE message for user %s: %v", userID, err)
+						return
+					}
+					
+				case <-time.After(30 * time.Second):
+					// Send heartbeat every 30 seconds to keep connection alive
+					heartbeat := fmt.Sprintf("data: {\"type\": \"heartbeat\", \"timestamp\": \"%s\"}\n\n", 
+						time.Now().Format(time.RFC3339))
+					if _, err := w.WriteString(heartbeat); err != nil {
+						log.Printf("Error writing heartbeat for user %s: %v", userID, err)
+						return
+					}
+					if err := w.Flush(); err != nil {
+						log.Printf("Error flushing heartbeat for user %s: %v", userID, err)
+						return
+					}
+				}
+				
+				// Check if client is done (non-blocking)
+				select {
 				case <-client.Done:
 					return
-				case <-c.Context().Done():
-					return
+				default:
+					// Continue loop
 				}
 			}
 		}))
-
+		
 		return nil
 	}
 }
