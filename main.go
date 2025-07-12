@@ -4,8 +4,7 @@ import (
 	"log"
 	"os"
 
-	"github.com/gofiber/fiber/v2"
-	"github.com/gofiber/fiber/v2/middleware/cors"
+	"github.com/gin-gonic/gin"
 	"github.com/jmoiron/sqlx"
 	"github.com/joho/godotenv"
 	"github.com/ktappdev/noti-service/database"
@@ -16,9 +15,6 @@ import (
 
 var db *sqlx.DB
 var sseHub *sse.SSEHub
-
-
-
 
 func main() {
 	if err := godotenv.Load(); err != nil {
@@ -35,49 +31,49 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-
 	defer db.Close()
 
 	if err := database.CreateSchema(db); err != nil {
 		log.Fatal(err)
 	}
 
-	// Initialize and start SSE hub
 	sseHub = sse.NewSSEHub()
 	go sseHub.Run()
 
-	app := fiber.New()
-	app.Use(cors.New(cors.Config{
-		AllowOrigins:     "*",
-		AllowMethods:     "GET,POST,HEAD,PUT,DELETE,PATCH,OPTIONS",
-		AllowHeaders:     "Origin, Content-Type, Accept, Cache-Control, Authorization, X-Requested-With",
-		AllowCredentials: false,
-		ExposeHeaders:    "Content-Length, Content-Type",
-	}))
-	// app.Use(logger.New(logger.Config{
-	// 	Format: "[${ip}]:${port} ${status} - ${method} ${path}\n",
-	// }))
+	r := gin.Default()
+
+	// CORS middleware
+	r.Use(func(c *gin.Context) {
+		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
+		c.Writer.Header().Set("Access-Control-Allow-Methods", "GET,POST,HEAD,PUT,DELETE,PATCH,OPTIONS")
+		c.Writer.Header().Set("Access-Control-Allow-Headers", "Origin, Content-Type, Accept, Cache-Control, Authorization, X-Requested-With")
+		c.Writer.Header().Set("Access-Control-Allow-Credentials", "false")
+		c.Writer.Header().Set("Access-Control-Expose-Headers", "Content-Length, Content-Type")
+		if c.Request.Method == "OPTIONS" {
+			c.AbortWithStatus(204)
+			return
+		}
+		c.Next()
+	})
 
 	// Routes
-	app.Post("/users", handlers.CreateUser(db))
-	app.Post("/notifications/product-owner", handlers.CreateProductOwnerNotification(db, sseHub))
-	app.Post("/notifications/reply", handlers.CreateReplyNotification(db, sseHub))
-	app.Post("/notifications/like", handlers.CreateLikeNotification(db, sseHub))
-	app.Get("/notifications/latest", handlers.GetLatestNotifications(db))
-	app.Get("/notifications", handlers.GetAllNotifications(db))
-	app.Get("/notifications/unread", handlers.GetAllUnreadNotifications(db))
-	app.Delete("/notifications", handlers.DeleteReadNotifications(db))
-	app.Put("/notifications/:id/read", handlers.MarkNotificationAsRead(db, sseHub))
+	r.POST("/users", handlers.CreateUserGin(db))
+	r.POST("/notifications/product-owner", handlers.CreateProductOwnerNotificationGin(db, sseHub))
+	r.POST("/notifications/reply", handlers.CreateReplyNotificationGin(db, sseHub))
+	r.POST("/notifications/like", handlers.CreateLikeNotificationGin(db, sseHub))
+	r.GET("/notifications/latest", handlers.GetLatestNotificationsGin(db))
+	r.GET("/notifications", handlers.GetAllNotificationsGin(db))
+	r.GET("/notifications/unread", handlers.GetAllUnreadNotificationsGin(db))
+	r.DELETE("/notifications", handlers.DeleteReadNotificationsGin(db))
+	r.PUT("/notifications/:id/read", handlers.MarkNotificationAsReadGin(db, sseHub))
 
 	// SSE route
-	app.Get("/notifications/stream", handlers.StreamNotifications(db, sseHub))
-	
+	r.GET("/notifications/stream", handlers.StreamNotificationsGin(db, sseHub))
 	// SSE documentation route
-	app.Get("/sse-help", handlers.SSEHelpHandler())
-	
+	r.GET("/sse-help", handlers.SSEHelpHandlerGin())
 	// Test SSE endpoint
-	app.Get("/test/sse", handlers.TestSSEHandler())
+	r.GET("/test/sse", handlers.TestSSEHandlerGin())
 
 	log.Printf("Server starting on port 3001...")
-	log.Fatal(app.Listen(":3001"))
+	r.Run(":3001")
 }

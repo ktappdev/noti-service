@@ -4,8 +4,10 @@ import (
 	"bufio"
 	"fmt"
 	"log"
+	"net/http"
 	"time"
 
+	"github.com/gin-gonic/gin"
 	"github.com/gofiber/fiber/v2"
 	"github.com/valyala/fasthttp"
 )
@@ -70,5 +72,36 @@ func TestSSEHandler() fiber.Handler {
 		}))
 
 		return nil
+	}
+}
+
+// TestSSEHandlerGin creates a simple SSE endpoint for testing (Gin version)
+func TestSSEHandlerGin() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		w := c.Writer
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Connection", "keep-alive")
+
+		log.Printf("Test SSE connection started (Gin)")
+
+		initialMsg := fmt.Sprintf("data: {\"message\": \"Test SSE connected\", \"timestamp\": \"%s\"}\n\n", time.Now().Format(time.RFC3339))
+		w.Write([]byte(initialMsg))
+
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Streaming unsupported"})
+			return
+		}
+		flusher.Flush()
+
+		for i := 1; i <= 5; i++ {
+			if i > 1 {
+				time.Sleep(2 * time.Second)
+			}
+			testMsg := fmt.Sprintf("data: {\"message\": \"Test message %d\", \"timestamp\": \"%s\"}\n\n", i, time.Now().Format(time.RFC3339))
+			w.Write([]byte(testMsg))
+			flusher.Flush()
+		}
 	}
 }

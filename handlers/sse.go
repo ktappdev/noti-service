@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net/http"
 	"time"
 
+	"github.com/gin-gonic/gin"
 	"github.com/gofiber/fiber/v2"
 	"github.com/jmoiron/sqlx"
 	"github.com/ktappdev/noti-service/models"
@@ -136,6 +138,99 @@ func StreamNotifications(db *sqlx.DB, hub *sse.SSEHub) fiber.Handler {
 		}))
 		
 		return nil
+	}
+}
+
+// StreamNotificationsGin handles SSE connections for real-time notifications (Gin version)
+func StreamNotificationsGin(db *sqlx.DB, hub *sse.SSEHub) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		userID := c.Query("user_id")
+		if userID == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "user_id query parameter is required"})
+			return
+		}
+
+		w := c.Writer
+		// r := c.Request // Remove unused variable
+
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Connection", "keep-alive")
+		w.Header().Set("Transfer-Encoding", "chunked")
+		w.Header().Set("X-Accel-Buffering", "no")
+
+		clientID := fmt.Sprintf("%s_%d", userID, time.Now().UnixNano())
+		client := &sse.SSEClient{
+			UserID:  userID,
+			Channel: make(chan []byte, 10),
+			Done:    make(chan bool),
+			ID:      clientID,
+		}
+		hub.RegisterClient(client)
+
+		initialMsg := models.NotificationMessage{
+			UserID: userID,
+			Type:   "system",
+			Event:  "connected",
+			Notification: map[string]string{
+				"message": "Connected to notification stream",
+				"time":    time.Now().Format(time.RFC3339),
+			},
+		}
+		initialData, _ := json.Marshal(initialMsg)
+		initialResponse := fmt.Sprintf("data: %s\n\n", initialData)
+
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Streaming unsupported"})
+			hub.UnregisterClient(client)
+			return
+		}
+
+		// Write initial message and flush
+		w.Write([]byte(initialResponse))
+		flusher.Flush()
+
+		// Send existing notifications after initial message
+		go func() {
+			time.Sleep(100 * time.Millisecond)
+			sendExistingNotifications(db, client)
+		}()
+
+		closeNotify := c.Writer.CloseNotify()
+		for {
+			select {
+			case message, ok := <-client.Channel:
+				if !ok {
+					hub.UnregisterClient(client)
+					return
+				}
+				w.Write(message)
+				flusher.Flush()
+			case <-time.After(30 * time.Second):
+				heartbeat := fmt.Sprintf("data: {\"type\": \"heartbeat\", \"timestamp\": \"%s\"}\n\n", time.Now().Format(time.RFC3339))
+				w.Write([]byte(heartbeat))
+				flusher.Flush()
+			case <-client.Done:
+				hub.UnregisterClient(client)
+				return
+			case <-closeNotify:
+				hub.UnregisterClient(client)
+				return
+			}
+		}
+	}
+}
+
+// SSEHelpHandlerGin provides SSE documentation/help (Gin version)
+func SSEHelpHandlerGin() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		help := map[string]interface{}{
+			"message": "This endpoint provides Server-Sent Events (SSE) for real-time notifications.",
+			"usage":   "/notifications/stream?user_id={USER_ID}",
+			"note":    "You must provide a valid user_id as a query parameter.",
+		}
+		c.JSON(200, help)
 	}
 }
 
