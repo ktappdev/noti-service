@@ -1,3 +1,4 @@
 .env
 tmp
 noti-service
+.DS_Store
