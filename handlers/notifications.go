@@ -63,7 +63,7 @@ func CreateProductOwnerNotification(db *sqlx.DB, hub *sse.SSEHub) fiber.Handler 
 }
 
 // CreateReplyNotification creates a new reply notification
-func CreateReplyNotification(db *sqlx.DB, hub *sse.SSEHub) fiber.Handler {
+func CreateReplyNotification(db *sqlx.DB, reviewitDB *sqlx.DB, hub *sse.SSEHub) fiber.Handler {
 	return func(c *fiber.Ctx) error {
 		notification := new(models.UserNotification)
 		if err := c.BodyParser(notification); err != nil {
@@ -74,13 +74,9 @@ func CreateReplyNotification(db *sqlx.DB, hub *sse.SSEHub) fiber.Handler {
 		notification.NotificationType = "reply"
 		log.Printf("Creating reply notification: %+v", notification)
 
-		parentUserID, err := reviewit.GetParentCommentUserID(notification.ParentID)
+		parentUserID, err := reviewit.GetParentCommentUserID(reviewitDB, notification.ParentID)
 		if err != nil {
 			log.Printf("ERROR getting parent user ID: %v", err)
-			// Check if it's a missing environment variable error
-			if err.Error() == "REVIEWIT_DATABASE_URL environment variable is required" {
-				return c.Status(500).SendString("ReviewIt database connection not configured. Please set REVIEWIT_DATABASE_URL environment variable.")
-			}
 			return c.Status(500).SendString(fmt.Sprintf("Error getting parent user ID: %v", err))
 		}
 		notification.ParentUserID = parentUserID
@@ -123,7 +119,7 @@ func CreateReplyNotification(db *sqlx.DB, hub *sse.SSEHub) fiber.Handler {
 }
 
 // CreateLikeNotification creates a new like notification
-func CreateLikeNotification(db *sqlx.DB, hub *sse.SSEHub) fiber.Handler {
+func CreateLikeNotification(db *sqlx.DB, reviewitDB *sqlx.DB, hub *sse.SSEHub) fiber.Handler {
 	return func(c *fiber.Ctx) error {
 		notification := new(models.LikeNotification)
 		if err := c.BodyParser(notification); err != nil {
@@ -143,22 +139,16 @@ func CreateLikeNotification(db *sqlx.DB, hub *sse.SSEHub) fiber.Handler {
 
 		if notification.TargetType == "comment" {
 			// For comments, get the user who made the comment
-			targetUserID, err = reviewit.GetCommentUserID(notification.TargetID)
+			targetUserID, err = reviewit.GetCommentUserID(reviewitDB, notification.TargetID)
 			if err != nil {
 				log.Printf("ERROR getting comment user ID: %v", err)
-				if err.Error() == "REVIEWIT_DATABASE_URL environment variable is required" {
-					return c.Status(500).SendString("ReviewIt database connection not configured. Please set REVIEWIT_DATABASE_URL environment variable.")
-				}
 				return c.Status(500).SendString(fmt.Sprintf("Error getting comment user ID: %v", err))
 			}
 		} else if notification.TargetType == "review" {
 			// For reviews, get the user who made the review
-			targetUserID, err = reviewit.GetReviewUserID(notification.TargetID)
+			targetUserID, err = reviewit.GetReviewUserID(reviewitDB, notification.TargetID)
 			if err != nil {
 				log.Printf("ERROR getting review user ID: %v", err)
-				if err.Error() == "REVIEWIT_DATABASE_URL environment variable is required" {
-					return c.Status(500).SendString("ReviewIt database connection not configured. Please set REVIEWIT_DATABASE_URL environment variable.")
-				}
 				return c.Status(500).SendString(fmt.Sprintf("Error getting review user ID: %v", err))
 			}
 		}
@@ -197,7 +187,7 @@ func CreateLikeNotification(db *sqlx.DB, hub *sse.SSEHub) fiber.Handler {
 		query := `INSERT INTO like_notifications (id, target_user_id, target_type, target_id, from_id, from_name, product_id, read)
 	              VALUES (gen_random_uuid(), :target_user_id, :target_type, :target_id, :from_id, :from_name, :product_id, :read) 
 	              RETURNING id, created_at`
-		
+
 		rows, err := db.NamedQuery(query, notification)
 		if err != nil {
 			log.Printf("Error inserting like notification: %v", err)
@@ -434,9 +424,9 @@ func MarkNotificationAsRead(db *sqlx.DB, hub *sse.SSEHub) fiber.Handler {
 		// Broadcast read status to SSE clients
 		readMessage := map[string]interface{}{
 			"notification_id": notificationID,
-			"type":           notificationType,
-			"read":           true,
-			"timestamp":      time.Now().Format(time.RFC3339),
+			"type":            notificationType,
+			"read":            true,
+			"timestamp":       time.Now().Format(time.RFC3339),
 		}
 
 		// We need to get the user ID for this notification to broadcast properly
