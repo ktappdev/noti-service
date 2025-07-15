@@ -64,6 +64,20 @@ func CreateSchema(db *sqlx.DB) error {
     CREATE INDEX IF NOT EXISTS idx_product_owner_notifications_created_at ON product_owner_notifications(created_at);
     CREATE INDEX IF NOT EXISTS idx_like_notifications_target_user_id ON like_notifications(target_user_id);
     CREATE INDEX IF NOT EXISTS idx_like_notifications_created_at ON like_notifications(created_at);
+
+    CREATE TABLE IF NOT EXISTS system_notifications (
+        id VARCHAR(255) PRIMARY KEY,
+        target_user_ids TEXT, -- Comma-separated user IDs, empty means broadcast to all
+        title VARCHAR(255) NOT NULL,
+        message TEXT NOT NULL,
+        cta_url VARCHAR(500),
+        icon VARCHAR(50),
+        read BOOLEAN DEFAULT FALSE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        notification_type VARCHAR(50) DEFAULT 'system'
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_system_notifications_created_at ON system_notifications(created_at);
     `
 	_, err := db.Exec(schema)
 	return err

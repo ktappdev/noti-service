@@ -61,8 +61,10 @@ func main() {
 	// Routes
 	app.Post("/users", handlers.CreateUser(db))
 	app.Post("/notifications/product-owner", handlers.CreateProductOwnerNotification(db, sseHub))
+	app.Post("/notifications/comment", handlers.CreateCommentNotification(db, sseHub))
 	app.Post("/notifications/reply", handlers.CreateReplyNotification(db, sseHub))
 	app.Post("/notifications/like", handlers.CreateLikeNotification(db, sseHub))
+	app.Post("/notifications/system", handlers.CreateSystemNotification(db, sseHub))
 	app.Get("/notifications/latest", handlers.GetLatestNotifications(db))
 	app.Get("/notifications", handlers.GetAllNotifications(db))
 	app.Get("/notifications/unread", handlers.GetAllUnreadNotifications(db))

@@ -118,6 +118,26 @@ func (h *SSEHub) BroadcastToUser(userID string, event string, notificationType s
 	}
 }
 
+// BroadcastToAll sends a notification to all connected clients (for system notifications)
+func (h *SSEHub) BroadcastToAll(event string, notificationType string, notification interface{}) {
+	h.mutex.RLock()
+	defer h.mutex.RUnlock()
+
+	for userID := range h.clients {
+		message := models.NotificationMessage{
+			UserID:       userID,
+			Type:         notificationType,
+			Notification: notification,
+			Event:        event,
+		}
+
+		select {
+		case h.broadcast <- message:
+		default:
+		}
+	}
+}
+
 // RegisterClient registers a new SSE client
 func (h *SSEHub) RegisterClient(client *SSEClient) {
 	h.register <- client

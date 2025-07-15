@@ -12,6 +12,246 @@ All endpoints require user authentication. Include user identification in reques
 
 ## 📨 Core Notification Endpoints
 
+## 🔧 Notification Creation Endpoints
+
+### 1. Create User
+**Purpose:** Create or update a user in the notification service database
+
+```http
+POST /users
+```
+
+**Request Body:**
+```json
+{
+  "id": "user_123abc",
+  "username": "johndoe",
+  "full_name": "John Doe"
+}
+```
+
+**Response:**
+```json
+{
+  "id": "user_123abc",
+  "username": "johndoe",
+  "full_name": "John Doe"
+}
+```
+
+**Status Codes:**
+- `201`: User created successfully
+- `400`: Invalid request body
+- `500`: Server error
+
+---
+
+### 2. Create Comment Notification
+**Purpose:** Notify a review author when someone comments on their review
+
+```http
+POST /notifications/comment
+```
+
+**Request Body:**
+```json
+{
+  "id": "comment_123abc",
+  "review_id": "review_456def",
+  "comment_id": "comment_123abc",
+  "parent_user_id": "user_101jkl",
+  "from_id": "user_789ghi",
+  "from_name": "Jane Smith",
+  "content": "This is a comment on a review",
+  "product_id": "product_202mno",
+  "parent_id": "review_456def",
+  "read": false
+}
+```
+
+**Response:**
+```json
+{
+  "id": "comment_123abc",
+  "parent_user_id": "user_101jkl",
+  "content": "This is a comment on a review",
+  "created_at": "2025-07-15T12:00:01.005045Z",
+  "read": false,
+  "notification_type": "comment",
+  "comment_id": "comment_123abc",
+  "review_id": "review_456def",
+  "from_id": "user_789ghi",
+  "parent_id": "review_456def",
+  "from_name": "Jane Smith",
+  "product_id": "product_202mno"
+}
+```
+
+**Status Codes:**
+- `201`: Notification created successfully
+- `400`: Invalid request body, missing parent_user_id, or user doesn't exist
+- `500`: Server error
+
+**SSE Side Effect:**
+Real-time notification sent to `parent_user_id` via SSE stream.
+
+---
+
+### 3. Create Reply Notification
+**Purpose:** Notify a comment author when someone replies to their comment
+
+```http
+POST /notifications/reply
+```
+
+**Request Body:**
+```json
+{
+  "id": "reply_123abc",
+  "parent_user_id": "user_456def",
+  "content": "This is a reply to a comment",
+  "comment_id": "reply_123abc",
+  "from_id": "user_101jkl",
+  "review_id": "review_202mno",
+  "parent_id": "comment_303pqr",
+  "from_name": "Jane Smith",
+  "product_id": "product_404stu",
+  "read": false
+}
+```
+
+**Note:** Either `parent_user_id` (recommended) or `parent_id` (comment ID for lookup) is required.
+
+**Response:**
+```json
+{
+  "id": "reply_123abc",
+  "parent_user_id": "user_456def",
+  "content": "This is a reply to a comment",
+  "created_at": "2025-07-15T12:00:12.689141Z",
+  "read": false,
+  "notification_type": "reply",
+  "comment_id": "reply_123abc",
+  "review_id": "review_202mno",
+  "from_id": "user_101jkl",
+  "parent_id": "comment_303pqr",
+  "from_name": "Jane Smith",
+  "product_id": "product_404stu"
+}
+```
+
+**Status Codes:**
+- `201`: Notification created successfully
+- `400`: Invalid request body, missing required fields, or user doesn't exist
+- `500`: Server error
+
+**SSE Side Effect:**
+Real-time notification sent to `parent_user_id` via SSE stream.
+
+---
+
+### 4. Create Like Notification
+**Purpose:** Notify a user when someone likes their review or comment
+
+```http
+POST /notifications/like
+```
+
+**Request Body:**
+```json
+{
+  "target_type": "review",
+  "target_id": "review_456def",
+  "from_id": "user_789ghi",
+  "from_name": "Chris Brown",
+  "target_user_id": "user_101jkl",
+  "product_id": "product_202mno",
+  "read": false
+}
+```
+
+**Response:**
+```json
+{
+  "id": "generated_uuid",
+  "target_user_id": "user_101jkl",
+  "target_type": "review",
+  "target_id": "review_456def",
+  "from_id": "user_789ghi",
+  "from_name": "Chris Brown",
+  "product_id": "product_202mno",
+  "created_at": "2025-07-15T12:00:01.005045Z",
+  "read": false
+}
+```
+
+**Status Codes:**
+- `201`: Notification created successfully
+- `200`: No notification created (self-like)
+- `400`: Invalid request body or user doesn't exist
+- `500`: Server error
+
+**SSE Side Effect:**
+Real-time notification sent to `target_user_id` via SSE stream.
+
+---
+
+### 5. Create Product Owner Notification
+**Purpose:** Notify a product owner when activity occurs on their product
+
+```http
+POST /notifications/product-owner
+```
+
+**Request Body:**
+```json
+{
+  "id": "notification_123abc",
+  "owner_id": "user_456def",
+  "business_id": "business_789ghi",
+  "review_title": "Great product!",
+  "from_name": "John Doe",
+  "from_id": "user_101jkl",
+  "product_id": "product_202mno",
+  "product_name": "Awesome Widget",
+  "review_id": "review_303pqr",
+  "comment_id": null,
+  "notification_type": "review",
+  "read": false
+}
+```
+
+**Response:**
+```json
+{
+  "id": "notification_123abc",
+  "owner_id": "user_456def",
+  "product_id": "product_202mno",
+  "product_name": "Awesome Widget",
+  "business_id": "business_789ghi",
+  "review_title": "Great product!",
+  "created_at": "2025-07-15T12:00:01.005045Z",
+  "from_name": "John Doe",
+  "from_id": "user_101jkl",
+  "read": false,
+  "comment_id": null,
+  "review_id": "review_303pqr",
+  "notification_type": "review"
+}
+```
+
+**Status Codes:**
+- `201`: Notification created successfully
+- `400`: Invalid request body or owner doesn't exist
+- `500`: Server error
+
+**SSE Side Effect:**
+Real-time notification sent to `owner_id` via SSE stream.
+
+---
+
+## 📨 Notification Management Endpoints
+
 ### 1. Get All Notifications
 **Purpose:** Fallback method to get notifications (SSE is preferred)
 

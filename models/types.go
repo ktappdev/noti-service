@@ -55,10 +55,24 @@ type LikeNotification struct {
 	Read         bool      `db:"read" json:"read"`
 }
 
+// SystemNotification represents a system/admin notification
+type SystemNotification struct {
+	ID              string    `db:"id" json:"id"`
+	TargetUserIDs   string    `db:"target_user_ids" json:"-"` // Comma-separated user IDs
+	TargetUserIDsArray []string `json:"target_user_ids"`      // JSON representation
+	Title           string    `db:"title" json:"title"`
+	Message         string    `db:"message" json:"message"`
+	CtaURL          *string   `db:"cta_url" json:"cta_url"`           // Optional call-to-action URL
+	Icon            *string   `db:"icon" json:"icon"`                 // Optional icon hint (info/success/warning/error)
+	Read            bool      `db:"read" json:"read"`
+	CreatedAt       time.Time `db:"created_at" json:"created_at"`
+	NotificationType string   `db:"notification_type" json:"notification_type"` // Always "system"
+}
+
 // NotificationMessage represents a message sent through SSE
 type NotificationMessage struct {
 	UserID       string      `json:"user_id"`
-	Type         string      `json:"type"` // "user", "owner", or "like"
+	Type         string      `json:"type"` // "user", "owner", "like", or "system"
 	Notification interface{} `json:"notification"`
 	Event        string      `json:"event"` // "new_notification", "notification_read", etc.
 }

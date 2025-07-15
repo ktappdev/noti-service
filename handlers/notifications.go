@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
@@ -12,6 +13,15 @@ import (
 	"github.com/ktappdev/noti-service/reviewit"
 	"github.com/ktappdev/noti-service/sse"
 )
+
+// parseCommaSeparatedString converts a comma-separated string to a Go slice
+func parseCommaSeparatedString(str string) []string {
+	if str == "" {
+		return []string{}
+	}
+	
+	return strings.Split(str, ",")
+}
 
 // CreateProductOwnerNotification creates a new product owner notification
 func CreateProductOwnerNotification(db *sqlx.DB, hub *sse.SSEHub) fiber.Handler {
@@ -62,7 +72,72 @@ func CreateProductOwnerNotification(db *sqlx.DB, hub *sse.SSEHub) fiber.Handler 
 	}
 }
 
-// CreateReplyNotification creates a new reply notification
+// CreateCommentNotification creates a new comment notification (for comments on reviews)
+func CreateCommentNotification(db *sqlx.DB, hub *sse.SSEHub) fiber.Handler {
+	return func(c *fiber.Ctx) error {
+		notification := new(models.UserNotification)
+		if err := c.BodyParser(notification); err != nil {
+			return c.Status(400).SendString(err.Error())
+		}
+
+		// Set the notification type
+		notification.NotificationType = "comment"
+		log.Printf("Creating comment notification: %+v", notification)
+
+		// For comments on reviews, target_user_id should be provided directly
+		if notification.ParentUserID == "" {
+			return c.Status(400).SendString("target_user_id (parent_user_id) is required for comment notifications")
+		}
+
+		// Check if the target user exists
+		var exists bool
+		err := db.Get(&exists, "SELECT EXISTS(SELECT 1 FROM users WHERE id = $1)", notification.ParentUserID)
+		if err != nil {
+			log.Printf("Error checking target user existence: %v", err)
+			return c.Status(500).SendString("Internal server error")
+		}
+		if !exists {
+			log.Printf("Target user %s does not exist", notification.ParentUserID)
+			return c.Status(400).SendString("Target user does not exist. Please ensure the user is created in the notification service first.")
+		}
+
+		// Check if the from user exists
+		err = db.Get(&exists, "SELECT EXISTS(SELECT 1 FROM users WHERE id = $1)", notification.FromID)
+		if err != nil {
+			log.Printf("Error checking from user existence: %v", err)
+			return c.Status(500).SendString("Internal server error")
+		}
+		if !exists {
+			log.Printf("From user %s does not exist", notification.FromID)
+			return c.Status(400).SendString("From user does not exist. Please ensure the user is created in the notification service first.")
+		}
+
+		// Insert the notification
+		query := `INSERT INTO user_notifications (id, parent_user_id, content, read, notification_type, comment_id, from_id, review_id, parent_id, from_name, product_id)
+	  VALUES (:id, :parent_user_id, :content, :read, :notification_type, :comment_id, :from_id, :review_id, :parent_id, :from_name, :product_id) RETURNING id, created_at`
+		rows, err := db.NamedQuery(query, notification)
+		if err != nil {
+			log.Printf("Error inserting comment notification: %v", err)
+			return c.Status(500).SendString("Failed to create comment notification")
+		}
+		defer rows.Close()
+
+		if rows.Next() {
+			err = rows.Scan(&notification.ID, &notification.CreatedAt)
+			if err != nil {
+				log.Printf("Error scanning comment notification result: %v", err)
+				return c.Status(500).SendString("Failed to retrieve created comment notification")
+			}
+		}
+
+		// Broadcast to SSE clients
+		hub.BroadcastToUser(notification.ParentUserID, "new_notification", "user", notification)
+
+		return c.Status(201).JSON(notification)
+	}
+}
+
+// CreateReplyNotification creates a new reply notification (for replies to comments)
 func CreateReplyNotification(db *sqlx.DB, hub *sse.SSEHub) fiber.Handler {
 	return func(c *fiber.Ctx) error {
 		notification := new(models.UserNotification)
@@ -74,27 +149,48 @@ func CreateReplyNotification(db *sqlx.DB, hub *sse.SSEHub) fiber.Handler {
 		notification.NotificationType = "reply"
 		log.Printf("Creating reply notification: %+v", notification)
 
-		parentUserID, err := reviewit.GetParentCommentUserID(notification.ParentID)
-		if err != nil {
-			log.Printf("ERROR getting parent user ID: %v", err)
-			// Check if it's a missing environment variable error
-			if err.Error() == "REVIEWIT_DATABASE_URL environment variable is required" {
-				return c.Status(500).SendString("ReviewIt database connection not configured. Please set REVIEWIT_DATABASE_URL environment variable.")
+		// For replies, parent_user_id should be provided directly by the frontend
+		// If not provided, try to look it up from the parent comment
+		if notification.ParentUserID == "" {
+			if notification.ParentID == "" {
+				return c.Status(400).SendString("Either parent_user_id or parent_id (comment ID) is required for reply notifications")
 			}
-			return c.Status(500).SendString(fmt.Sprintf("Error getting parent user ID: %v", err))
-		}
-		notification.ParentUserID = parentUserID
 
-		// Check if the user exists
+			// ParentID should be a comment ID, look up the user who made that comment
+			parentUserID, err := reviewit.GetParentCommentUserID(notification.ParentID)
+			if err != nil {
+				log.Printf("ERROR getting parent user ID from comment %s: %v", notification.ParentID, err)
+				// Check if it's a missing environment variable error
+				if err.Error() == "REVIEWIT_DATABASE_URL environment variable is required" {
+					return c.Status(500).SendString("ReviewIt database connection not configured. Please set REVIEWIT_DATABASE_URL environment variable.")
+				}
+				return c.Status(500).SendString(fmt.Sprintf("Error getting parent user ID from comment: %v", err))
+			}
+			notification.ParentUserID = parentUserID
+			log.Printf("Looked up user ID from comment %s: %s", notification.ParentID, parentUserID)
+		}
+
+		// Check if the target user exists
 		var exists bool
-		err = db.Get(&exists, "SELECT EXISTS(SELECT 1 FROM users WHERE id = $1)", notification.ParentUserID)
+		err := db.Get(&exists, "SELECT EXISTS(SELECT 1 FROM users WHERE id = $1)", notification.ParentUserID)
 		if err != nil {
-			log.Printf("Error checking user existence: %v", err)
+			log.Printf("Error checking target user existence: %v", err)
 			return c.Status(500).SendString("Internal server error")
 		}
 		if !exists {
-			log.Println("user don't exist")
-			return c.Status(400).SendString("User does not exist")
+			log.Printf("Target user %s does not exist", notification.ParentUserID)
+			return c.Status(400).SendString("Target user does not exist. Please ensure the user is created in the notification service first.")
+		}
+
+		// Check if the from user exists
+		err = db.Get(&exists, "SELECT EXISTS(SELECT 1 FROM users WHERE id = $1)", notification.FromID)
+		if err != nil {
+			log.Printf("Error checking from user existence: %v", err)
+			return c.Status(500).SendString("Internal server error")
+		}
+		if !exists {
+			log.Printf("From user %s does not exist", notification.FromID)
+			return c.Status(400).SendString("From user does not exist. Please ensure the user is created in the notification service first.")
 		}
 
 		// Insert the notification
@@ -102,21 +198,108 @@ func CreateReplyNotification(db *sqlx.DB, hub *sse.SSEHub) fiber.Handler {
 	  VALUES (:id, :parent_user_id, :content, :read, :notification_type, :comment_id, :from_id, :review_id, :parent_id, :from_name, :product_id) RETURNING id, created_at`
 		rows, err := db.NamedQuery(query, notification)
 		if err != nil {
-			log.Printf("Error inserting notification: %v", err)
-			return c.Status(500).SendString("Failed to create notification")
+			log.Printf("Error inserting reply notification: %v", err)
+			return c.Status(500).SendString("Failed to create reply notification")
 		}
 		defer rows.Close()
 
 		if rows.Next() {
 			err = rows.Scan(&notification.ID, &notification.CreatedAt)
 			if err != nil {
-				log.Printf("Error scanning notification result: %v", err)
-				return c.Status(500).SendString("Failed to retrieve created notification")
+				log.Printf("Error scanning reply notification result: %v", err)
+				return c.Status(500).SendString("Failed to retrieve created reply notification")
 			}
 		}
 
 		// Broadcast to SSE clients
 		hub.BroadcastToUser(notification.ParentUserID, "new_notification", "user", notification)
+
+		return c.Status(201).JSON(notification)
+	}
+}
+
+// CreateSystemNotification creates a new system notification
+func CreateSystemNotification(db *sqlx.DB, hub *sse.SSEHub) fiber.Handler {
+	return func(c *fiber.Ctx) error {
+		notification := new(models.SystemNotification)
+		if err := c.BodyParser(notification); err != nil {
+			return c.Status(400).SendString(err.Error())
+		}
+
+		// Set the notification type
+		notification.NotificationType = "system"
+		log.Printf("Creating system notification: %+v", notification)
+
+		// Validate required fields
+		if notification.Title == "" {
+			return c.Status(400).SendString("title is required for system notifications")
+		}
+		if notification.Message == "" {
+			return c.Status(400).SendString("message is required for system notifications")
+		}
+
+		// If target_user_ids is empty or nil, this is a broadcast to all users
+		isBroadcast := len(notification.TargetUserIDsArray) == 0
+
+		if !isBroadcast {
+			// Check if all target users exist
+			for _, userID := range notification.TargetUserIDsArray {
+				var exists bool
+				err := db.Get(&exists, "SELECT EXISTS(SELECT 1 FROM users WHERE id = $1)", userID)
+				if err != nil {
+					log.Printf("Error checking user existence for %s: %v", userID, err)
+					return c.Status(500).SendString("Internal server error")
+				}
+				if !exists {
+					log.Printf("Target user %s does not exist", userID)
+					return c.Status(400).SendString(fmt.Sprintf("Target user %s does not exist. Please ensure the user is created in the notification service first.", userID))
+				}
+			}
+		}
+
+		// Convert target_user_ids to comma-separated string
+		var targetUserIDsString string
+		if isBroadcast {
+			targetUserIDsString = "" // Empty string means broadcast to all
+		} else {
+			targetUserIDsString = strings.Join(notification.TargetUserIDsArray, ",")
+		}
+
+		// Insert the notification
+		query := `INSERT INTO system_notifications (id, target_user_ids, title, message, cta_url, icon, read, notification_type)
+	  VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id, created_at`
+		
+		err := db.QueryRow(query, 
+			notification.ID, 
+			targetUserIDsString, 
+			notification.Title, 
+			notification.Message, 
+			notification.CtaURL, 
+			notification.Icon, 
+			notification.Read, 
+			notification.NotificationType,
+		).Scan(&notification.ID, &notification.CreatedAt)
+		
+		if err != nil {
+			log.Printf("Error inserting system notification: %v", err)
+			return c.Status(500).SendString("Failed to create system notification")
+		}
+
+		// Set the array field for JSON response
+		notification.TargetUserIDsArray = notification.TargetUserIDsArray
+
+		// Broadcast to SSE clients
+		if isBroadcast {
+			// Broadcast to all connected users
+			hub.BroadcastToAll("new_notification", "system", notification)
+			log.Printf("Broadcasting system notification to all users")
+		} else {
+			// Send to specific users
+			for _, userID := range notification.TargetUserIDsArray {
+				hub.BroadcastToUser(userID, "new_notification", "system", notification)
+				log.Printf("Sending system notification to user: %s", userID)
+			}
+		}
 
 		return c.Status(201).JSON(notification)
 	}
@@ -142,24 +325,40 @@ func CreateLikeNotification(db *sqlx.DB, hub *sse.SSEHub) fiber.Handler {
 		var err error
 
 		if notification.TargetType == "comment" {
-			// For comments, get the user who made the comment
-			targetUserID, err = reviewit.GetCommentUserID(notification.TargetID)
-			if err != nil {
-				log.Printf("ERROR getting comment user ID: %v", err)
-				if err.Error() == "REVIEWIT_DATABASE_URL environment variable is required" {
-					return c.Status(500).SendString("ReviewIt database connection not configured. Please set REVIEWIT_DATABASE_URL environment variable.")
+			// Check if TargetID is already a user ID or a comment ID
+			if len(notification.TargetID) > 5 && notification.TargetID[:5] == "user_" {
+				// TargetID is already a user ID, use it directly
+				targetUserID = notification.TargetID
+				log.Printf("Using TargetID as user ID directly for comment: %s", targetUserID)
+			} else {
+				// TargetID is a comment ID, look up the user who made that comment
+				targetUserID, err = reviewit.GetCommentUserID(notification.TargetID)
+				if err != nil {
+					log.Printf("ERROR getting comment user ID: %v", err)
+					if err.Error() == "REVIEWIT_DATABASE_URL environment variable is required" {
+						return c.Status(500).SendString("ReviewIt database connection not configured. Please set REVIEWIT_DATABASE_URL environment variable.")
+					}
+					return c.Status(500).SendString(fmt.Sprintf("Error getting comment user ID: %v", err))
 				}
-				return c.Status(500).SendString(fmt.Sprintf("Error getting comment user ID: %v", err))
+				log.Printf("Looked up user ID from comment: %s", targetUserID)
 			}
 		} else if notification.TargetType == "review" {
-			// For reviews, get the user who made the review
-			targetUserID, err = reviewit.GetReviewUserID(notification.TargetID)
-			if err != nil {
-				log.Printf("ERROR getting review user ID: %v", err)
-				if err.Error() == "REVIEWIT_DATABASE_URL environment variable is required" {
-					return c.Status(500).SendString("ReviewIt database connection not configured. Please set REVIEWIT_DATABASE_URL environment variable.")
+			// Check if TargetID is already a user ID or a review ID
+			if len(notification.TargetID) > 5 && notification.TargetID[:5] == "user_" {
+				// TargetID is already a user ID, use it directly
+				targetUserID = notification.TargetID
+				log.Printf("Using TargetID as user ID directly for review: %s", targetUserID)
+			} else {
+				// TargetID is a review ID, look up the user who made that review
+				targetUserID, err = reviewit.GetReviewUserID(notification.TargetID)
+				if err != nil {
+					log.Printf("ERROR getting review user ID: %v", err)
+					if err.Error() == "REVIEWIT_DATABASE_URL environment variable is required" {
+						return c.Status(500).SendString("ReviewIt database connection not configured. Please set REVIEWIT_DATABASE_URL environment variable.")
+					}
+					return c.Status(500).SendString(fmt.Sprintf("Error getting review user ID: %v", err))
 				}
-				return c.Status(500).SendString(fmt.Sprintf("Error getting review user ID: %v", err))
+				log.Printf("Looked up user ID from review: %s", targetUserID)
 			}
 		}
 
@@ -294,10 +493,27 @@ func GetAllNotifications(db *sqlx.DB) fiber.Handler {
 			return c.Status(500).SendString(err.Error())
 		}
 
+		// Get system notifications (broadcast to all or specifically targeted to this user)
+		systemQuery := `SELECT id, COALESCE(target_user_ids, '') as target_user_ids, title, message, cta_url, icon, read, created_at, notification_type 
+	                    FROM system_notifications
+	                    WHERE target_user_ids = '' OR target_user_ids IS NULL OR target_user_ids LIKE '%' || $1 || '%'
+	                    ORDER BY created_at DESC`
+		var systemNotifications []models.SystemNotification
+		err = db.Select(&systemNotifications, systemQuery, userID)
+		if err != nil {
+			return c.Status(500).SendString(err.Error())
+		}
+
+		// Convert PostgreSQL arrays to Go slices for JSON response
+		for i := range systemNotifications {
+			systemNotifications[i].TargetUserIDsArray = parseCommaSeparatedString(systemNotifications[i].TargetUserIDs)
+		}
+
 		return c.JSON(fiber.Map{
-			"user_notifications":  userNotifications,
-			"owner_notifications": ownerNotifications,
-			"like_notifications":  likeNotifications,
+			"user_notifications":   userNotifications,
+			"owner_notifications":  ownerNotifications,
+			"like_notifications":   likeNotifications,
+			"system_notifications": systemNotifications,
 		})
 	}
 }
@@ -337,10 +553,27 @@ func GetAllUnreadNotifications(db *sqlx.DB) fiber.Handler {
 			return c.Status(500).SendString(err.Error())
 		}
 
+		// Get unread system notifications (broadcast to all or specifically targeted to this user)
+		systemQuery := `SELECT id, COALESCE(target_user_ids, '') as target_user_ids, title, message, cta_url, icon, read, created_at, notification_type 
+	                    FROM system_notifications
+	                    WHERE (target_user_ids = '' OR target_user_ids IS NULL OR target_user_ids LIKE '%' || $1 || '%') AND read = false
+	                    ORDER BY created_at DESC`
+		var systemNotifications []models.SystemNotification
+		err = db.Select(&systemNotifications, systemQuery, userID)
+		if err != nil {
+			return c.Status(500).SendString(err.Error())
+		}
+
+		// Convert PostgreSQL arrays to Go slices for JSON response
+		for i := range systemNotifications {
+			systemNotifications[i].TargetUserIDsArray = parseCommaSeparatedString(systemNotifications[i].TargetUserIDs)
+		}
+
 		return c.JSON(fiber.Map{
-			"user_notifications":  userNotifications,
-			"owner_notifications": ownerNotifications,
-			"like_notifications":  likeNotifications,
+			"user_notifications":   userNotifications,
+			"owner_notifications":  ownerNotifications,
+			"like_notifications":   likeNotifications,
+			"system_notifications": systemNotifications,
 		})
 	}
 }
@@ -411,6 +644,8 @@ func MarkNotificationAsRead(db *sqlx.DB, hub *sse.SSEHub) fiber.Handler {
 			query = "UPDATE product_owner_notifications SET read = true WHERE id = $1"
 		case "like":
 			query = "UPDATE like_notifications SET read = true WHERE id = $1"
+		case "system":
+			query = "UPDATE system_notifications SET read = true WHERE id = $1"
 		default:
 			return c.Status(400).SendString("Invalid notification type")
 		}
@@ -447,6 +682,11 @@ func MarkNotificationAsRead(db *sqlx.DB, hub *sse.SSEHub) fiber.Handler {
 			err = db.Get(&userID, "SELECT owner_id FROM product_owner_notifications WHERE id = $1", notificationID)
 		} else if notificationType == "like" {
 			err = db.Get(&userID, "SELECT target_user_id FROM like_notifications WHERE id = $1", notificationID)
+		} else if notificationType == "system" {
+			// For system notifications, we need to broadcast to all affected users
+			// For now, we'll skip the individual user broadcast since system notifications
+			// can target multiple users or be broadcasts
+			userID = "" // Will skip the broadcast below
 		}
 
 		if err == nil {
