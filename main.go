@@ -70,6 +70,7 @@ func main() {
 	app.Get("/notifications/unread", handlers.GetAllUnreadNotifications(db))
 	app.Delete("/notifications", handlers.DeleteReadNotifications(db))
 	app.Put("/notifications/:id/read", handlers.MarkNotificationAsRead(db, sseHub))
+	app.Put("/notifications/read-all", handlers.MarkAllNotificationsAsRead(db, sseHub))
 
 	// SSE route
 	app.Get("/notifications/stream", handlers.StreamNotifications(db, sseHub))

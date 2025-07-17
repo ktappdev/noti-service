@@ -696,3 +696,103 @@ func MarkNotificationAsRead(db *sqlx.DB, hub *sse.SSEHub) fiber.Handler {
 		return c.SendString("Notification marked as read")
 	}
 }
+
+// MarkAllNotificationsAsRead marks all unread notifications as read for a user
+func MarkAllNotificationsAsRead(db *sqlx.DB, hub *sse.SSEHub) fiber.Handler {
+	return func(c *fiber.Ctx) error {
+		userID := c.Query("user_id")
+		if userID == "" {
+			return c.Status(400).SendString("user_id query parameter is required")
+		}
+
+		notificationType := c.Query("type") // optional: "user", "owner", "like", "system", or empty for all
+
+		var userUpdated, ownerUpdated, likeUpdated, systemUpdated int64
+
+		// Update user notifications
+		if notificationType == "" || notificationType == "user" {
+			result, err := db.Exec("UPDATE user_notifications SET read = true WHERE parent_user_id = $1 AND read = false", userID)
+			if err != nil {
+				log.Printf("Error updating user notifications: %v", err)
+				return c.Status(500).SendString("Failed to update user notifications")
+			}
+			userUpdated, _ = result.RowsAffected()
+		}
+
+		// Update owner notifications
+		if notificationType == "" || notificationType == "owner" {
+			result, err := db.Exec("UPDATE product_owner_notifications SET read = true WHERE owner_id = $1 AND read = false", userID)
+			if err != nil {
+				log.Printf("Error updating owner notifications: %v", err)
+				return c.Status(500).SendString("Failed to update owner notifications")
+			}
+			ownerUpdated, _ = result.RowsAffected()
+		}
+
+		// Update like notifications
+		if notificationType == "" || notificationType == "like" {
+			result, err := db.Exec("UPDATE like_notifications SET read = true WHERE target_user_id = $1 AND read = false", userID)
+			if err != nil {
+				log.Printf("Error updating like notifications: %v", err)
+				return c.Status(500).SendString("Failed to update like notifications")
+			}
+			likeUpdated, _ = result.RowsAffected()
+		}
+
+		// Update system notifications (only those targeted to this user or broadcast to all)
+		if notificationType == "" || notificationType == "system" {
+			result, err := db.Exec(`UPDATE system_notifications SET read = true 
+				WHERE (target_user_ids = '' OR target_user_ids IS NULL OR target_user_ids LIKE '%' || $1 || '%') 
+				AND read = false`, userID)
+			if err != nil {
+				log.Printf("Error updating system notifications: %v", err)
+				return c.Status(500).SendString("Failed to update system notifications")
+			}
+			systemUpdated, _ = result.RowsAffected()
+		}
+
+		totalUpdated := userUpdated + ownerUpdated + likeUpdated + systemUpdated
+
+		// Broadcast read status to SSE clients for each type that was updated
+		readMessage := map[string]interface{}{
+			"user_id":     userID,
+			"read":        true,
+			"timestamp":   time.Now().Format(time.RFC3339),
+			"bulk_update": true,
+		}
+
+		if userUpdated > 0 {
+			readMessage["type"] = "user"
+			readMessage["count"] = userUpdated
+			hub.BroadcastToUser(userID, "notifications_bulk_read", "user", readMessage)
+		}
+
+		if ownerUpdated > 0 {
+			readMessage["type"] = "owner"
+			readMessage["count"] = ownerUpdated
+			hub.BroadcastToUser(userID, "notifications_bulk_read", "owner", readMessage)
+		}
+
+		if likeUpdated > 0 {
+			readMessage["type"] = "like"
+			readMessage["count"] = likeUpdated
+			hub.BroadcastToUser(userID, "notifications_bulk_read", "like", readMessage)
+		}
+
+		if systemUpdated > 0 {
+			readMessage["type"] = "system"
+			readMessage["count"] = systemUpdated
+			hub.BroadcastToUser(userID, "notifications_bulk_read", "system", readMessage)
+		}
+
+		return c.JSON(fiber.Map{
+			"message":                      "All notifications marked as read",
+			"user_notifications_updated":   userUpdated,
+			"owner_notifications_updated":  ownerUpdated,
+			"like_notifications_updated":   likeUpdated,
+			"system_notifications_updated": systemUpdated,
+			"total_updated":                totalUpdated,
+			"success":                      true,
+		})
+	}
+}
