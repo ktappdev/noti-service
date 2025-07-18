@@ -103,11 +103,11 @@ func StreamNotifications(db *sqlx.DB, hub *sse.SSEHub) fiber.Handler {
 						return
 					}
 					if _, err := w.Write(message); err != nil {
-						log.Printf("Error writing SSE message for user %s: %v", userID, err)
+						// Connection is closed, exit gracefully
 						return
 					}
 					if err := w.Flush(); err != nil {
-						log.Printf("Error flushing SSE message for user %s: %v", userID, err)
+						// Connection is closed, exit gracefully
 						return
 					}
 					
@@ -116,11 +116,11 @@ func StreamNotifications(db *sqlx.DB, hub *sse.SSEHub) fiber.Handler {
 					heartbeat := fmt.Sprintf("data: {\"type\": \"heartbeat\", \"timestamp\": \"%s\"}\n\n", 
 						time.Now().Format(time.RFC3339))
 					if _, err := w.WriteString(heartbeat); err != nil {
-						log.Printf("Error writing heartbeat for user %s: %v", userID, err)
+						// Connection is closed, exit gracefully without logging error
 						return
 					}
 					if err := w.Flush(); err != nil {
-						log.Printf("Error flushing heartbeat for user %s: %v", userID, err)
+						// Connection is closed, exit gracefully without logging error
 						return
 					}
 				}
