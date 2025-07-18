@@ -45,7 +45,7 @@ func StreamNotifications(db *sqlx.DB, hub *sse.SSEHub) fiber.Handler {
 		// Register client
 		hub.RegisterClient(client)
 
-		// Send initial connection message immediately to establish stream
+		// Prepare initial connection message to be sent inside StreamWriter
 		initialMsg := models.NotificationMessage{
 			UserID: userID,
 			Type:   "connection",
@@ -56,10 +56,7 @@ func StreamNotifications(db *sqlx.DB, hub *sse.SSEHub) fiber.Handler {
 			},
 		}
 		initialData, _ := json.Marshal(initialMsg)
-		
-		// Write initial message and flush immediately
 		initialResponse := fmt.Sprintf("data: %s\n\n", initialData)
-		c.Write([]byte(initialResponse))
 		
 		// Use the working streaming approach without problematic channels
 		c.Context().SetBodyStreamWriter(fasthttp.StreamWriter(func(w *bufio.Writer) {
@@ -77,13 +74,13 @@ func StreamNotifications(db *sqlx.DB, hub *sse.SSEHub) fiber.Handler {
 				return
 			}
 			
-			// Write the initial message first
+			// Write the initial message first to establish the connection
 			if _, err := w.WriteString(initialResponse); err != nil {
-				log.Printf("Error writing initial SSE message: %v", err)
+				// Connection failed immediately, exit gracefully
 				return
 			}
 			if err := w.Flush(); err != nil {
-				log.Printf("Error flushing initial SSE message: %v", err)
+				// Connection failed immediately, exit gracefully
 				return
 			}
 			
