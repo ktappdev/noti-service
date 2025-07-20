@@ -96,3 +96,61 @@ func GetReviewUserID(reviewID string) (string, error) {
 
 	return userID, nil
 }
+
+// GetCommentReviewID retrieves the reviewId that a comment belongs to
+func GetCommentReviewID(commentID string) (string, error) {
+	dbURL := os.Getenv("REVIEWIT_DATABASE_URL")
+	if dbURL == "" {
+		return "", fmt.Errorf("REVIEWIT_DATABASE_URL environment variable is required")
+	}
+	// Connect to the database
+	db, err := sqlx.Connect("postgres", dbURL)
+	if err != nil {
+		return "", fmt.Errorf("error connecting to database: %w", err)
+	}
+	defer db.Close()
+
+	// SQL query to get the reviewId from the Comment table
+	query := `
+		SELECT "reviewId"
+		FROM "Comment"
+		WHERE "id" = $1
+	`
+
+	var reviewID string
+	err = db.Get(&reviewID, query, commentID)
+	if err != nil {
+		return "", fmt.Errorf("error querying database: %w", err)
+	}
+
+	return reviewID, nil
+}
+
+// GetUserFullName retrieves the full name of a user by their ID
+func GetUserFullName(userID string) (string, error) {
+	dbURL := os.Getenv("REVIEWIT_DATABASE_URL")
+	if dbURL == "" {
+		return "", fmt.Errorf("REVIEWIT_DATABASE_URL environment variable is required")
+	}
+	// Connect to the database
+	db, err := sqlx.Connect("postgres", dbURL)
+	if err != nil {
+		return "", fmt.Errorf("error connecting to database: %w", err)
+	}
+	defer db.Close()
+
+	// SQL query to get the user's full name from the User table
+	query := `
+		SELECT "fullName"
+		FROM "User"
+		WHERE "id" = $1
+	`
+
+	var fullName string
+	err = db.Get(&fullName, query, userID)
+	if err != nil {
+		return "", fmt.Errorf("error querying database: %w", err)
+	}
+
+	return fullName, nil
+}

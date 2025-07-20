@@ -33,7 +33,15 @@ func CreateProductOwnerNotification(db *sqlx.DB, hub *sse.SSEHub) fiber.Handler 
 		}
 
 		// Set the notification type
-		notification.NotificationType = "review"
+		notification.NotificationType = "owner_review"
+		
+		// Set target_type and target_url
+		targetType := "review"
+		notification.TargetType = &targetType
+		if notification.ReviewID != "" {
+			targetURL := "/review/" + notification.ReviewID
+			notification.TargetURL = &targetURL
+		}
 		fmt.Println("this is the notification", notification)
 
 		// Check if the owner exists
@@ -48,12 +56,12 @@ func CreateProductOwnerNotification(db *sqlx.DB, hub *sse.SSEHub) fiber.Handler 
 			return c.Status(400).SendString("Owner does not exist")
 		}
 
-		query := `INSERT INTO product_owner_notifications (id, owner_id, product_id, product_name, business_id, review_title, from_name, from_id, read, comment_id, review_id, notification_type)
-	              VALUES (:id, :owner_id, :product_id, :product_name, :business_id, :review_title, :from_name, :from_id, :read, :comment_id, :review_id, :notification_type) RETURNING id, created_at`
+		query := `INSERT INTO product_owner_notifications (id, owner_id, product_id, product_name, business_id, review_title, from_name, from_id, read, comment_id, review_id, notification_type, target_type, target_url)
+	              VALUES (:id, :owner_id, :product_id, :product_name, :business_id, :review_title, :from_name, :from_id, :read, :comment_id, :review_id, :notification_type, :target_type, :target_url) RETURNING id, created_at`
 		rows, err := db.NamedQuery(query, notification)
 		if err != nil {
-			log.Printf("Error creating notification: %v", err)
-			return c.Status(500).SendString(err.Error())
+			log.Printf("Error creating product owner notification for owner %s: %v", notification.OwnerID, err)
+			return c.Status(500).SendString("Failed to create notification")
 		}
 		defer rows.Close()
 
@@ -81,7 +89,15 @@ func CreateCommentNotification(db *sqlx.DB, hub *sse.SSEHub) fiber.Handler {
 		}
 
 		// Set the notification type
-		notification.NotificationType = "comment"
+		notification.NotificationType = "reply_review"
+		
+		// Set target_type and target_url
+		targetType := "review"
+		notification.TargetType = &targetType
+		if notification.ReviewID != "" {
+			targetURL := "/review/" + notification.ReviewID
+			notification.TargetURL = &targetURL
+		}
 		log.Printf("Creating comment notification: %+v", notification)
 
 		// For comments on reviews, target_user_id should be provided directly
@@ -113,11 +129,11 @@ func CreateCommentNotification(db *sqlx.DB, hub *sse.SSEHub) fiber.Handler {
 		}
 
 		// Insert the notification
-		query := `INSERT INTO user_notifications (id, parent_user_id, content, read, notification_type, comment_id, from_id, review_id, parent_id, from_name, product_id)
-	  VALUES (:id, :parent_user_id, :content, :read, :notification_type, :comment_id, :from_id, :review_id, :parent_id, :from_name, :product_id) RETURNING id, created_at`
+		query := `INSERT INTO user_notifications (id, parent_user_id, content, read, notification_type, comment_id, from_id, review_id, parent_id, from_name, product_id, target_type, target_url)
+	  VALUES (:id, :parent_user_id, :content, :read, :notification_type, :comment_id, :from_id, :review_id, :parent_id, :from_name, :product_id, :target_type, :target_url) RETURNING id, created_at`
 		rows, err := db.NamedQuery(query, notification)
 		if err != nil {
-			log.Printf("Error inserting comment notification: %v", err)
+			log.Printf("Error inserting comment notification for user %s: %v", notification.ParentUserID, err)
 			return c.Status(500).SendString("Failed to create comment notification")
 		}
 		defer rows.Close()
@@ -146,7 +162,20 @@ func CreateReplyNotification(db *sqlx.DB, hub *sse.SSEHub) fiber.Handler {
 		}
 
 		// Set the notification type
-		notification.NotificationType = "reply"
+		notification.NotificationType = "reply_comment"
+		
+		// Set target_type and target_url
+		targetType := "comment"
+		notification.TargetType = &targetType
+		if notification.ReviewID != "" {
+			if notification.CommentID != nil && *notification.CommentID != "" {
+				targetURL := "/review/" + notification.ReviewID + "?cid=" + *notification.CommentID
+				notification.TargetURL = &targetURL
+			} else {
+				targetURL := "/review/" + notification.ReviewID
+				notification.TargetURL = &targetURL
+			}
+		}
 		log.Printf("Creating reply notification: %+v", notification)
 
 		// For replies, parent_user_id should be provided directly by the frontend
@@ -194,11 +223,11 @@ func CreateReplyNotification(db *sqlx.DB, hub *sse.SSEHub) fiber.Handler {
 		}
 
 		// Insert the notification
-		query := `INSERT INTO user_notifications (id, parent_user_id, content, read, notification_type, comment_id, from_id, review_id, parent_id, from_name, product_id)
-	  VALUES (:id, :parent_user_id, :content, :read, :notification_type, :comment_id, :from_id, :review_id, :parent_id, :from_name, :product_id) RETURNING id, created_at`
+		query := `INSERT INTO user_notifications (id, parent_user_id, content, read, notification_type, comment_id, from_id, review_id, parent_id, from_name, product_id, target_type, target_url)
+	  VALUES (:id, :parent_user_id, :content, :read, :notification_type, :comment_id, :from_id, :review_id, :parent_id, :from_name, :product_id, :target_type, :target_url) RETURNING id, created_at`
 		rows, err := db.NamedQuery(query, notification)
 		if err != nil {
-			log.Printf("Error inserting reply notification: %v", err)
+			log.Printf("Error inserting reply notification for user %s: %v", notification.ParentUserID, err)
 			return c.Status(500).SendString("Failed to create reply notification")
 		}
 		defer rows.Close()
@@ -281,7 +310,7 @@ func CreateSystemNotification(db *sqlx.DB, hub *sse.SSEHub) fiber.Handler {
 		).Scan(&notification.ID, &notification.CreatedAt)
 		
 		if err != nil {
-			log.Printf("Error inserting system notification: %v", err)
+			log.Printf("Error inserting system notification (broadcast: %v, targets: %d): %v", isBroadcast, len(notification.TargetUserIDsArray), err)
 			return c.Status(500).SendString("Failed to create system notification")
 		}
 
@@ -392,14 +421,64 @@ func CreateLikeNotification(db *sqlx.DB, hub *sse.SSEHub) fiber.Handler {
 			return c.Status(200).SendString("No notification created for self-like")
 		}
 
+		// Get review_id and comment_id based on target_type
+		var reviewID, commentID string
+		if notification.TargetType == "comment" {
+			// For comment likes, target_id is the comment ID
+			commentID = notification.TargetID
+			// Get the review_id that this comment belongs to
+			var err error
+			reviewID, err = reviewit.GetCommentReviewID(notification.TargetID)
+			if err != nil {
+				log.Printf("ERROR getting review ID for comment %s: %v", notification.TargetID, err)
+				// If we can't get review ID, we'll leave it empty but still create the notification
+				reviewID = ""
+			}
+		} else if notification.TargetType == "review" {
+			// For review likes, target_id is the review ID
+			reviewID = notification.TargetID
+			commentID = "" // No comment ID for review likes
+		}
+
+		notification.ReviewID = reviewID
+		if commentID != "" {
+			notification.CommentID = &commentID
+		}
+
+		// Set notification type and target_url based on target_type
+		if notification.TargetType == "comment" {
+			notification.NotificationType = "like_comment"
+			if reviewID != "" && commentID != "" {
+				targetURL := "/review/" + reviewID + "?cid=" + commentID
+				notification.TargetURL = &targetURL
+			}
+		} else if notification.TargetType == "review" {
+			notification.NotificationType = "like_review"
+			if reviewID != "" {
+				targetURL := "/review/" + reviewID
+				notification.TargetURL = &targetURL
+			}
+		}
+
+		// Ensure from_name is populated if missing
+		if notification.FromName == "" {
+			var err error
+			notification.FromName, err = reviewit.GetUserFullName(notification.FromID)
+			if err != nil {
+				log.Printf("ERROR getting user full name for %s: %v", notification.FromID, err)
+				// If we can't get the name, use a fallback
+				notification.FromName = "Someone"
+			}
+		}
+
 		// Insert the notification
-		query := `INSERT INTO like_notifications (id, target_user_id, target_type, target_id, from_id, from_name, product_id, read)
-	              VALUES (gen_random_uuid(), :target_user_id, :target_type, :target_id, :from_id, :from_name, :product_id, :read) 
+		query := `INSERT INTO like_notifications (id, target_user_id, target_type, target_id, from_id, from_name, product_id, review_id, comment_id, read, notification_type, target_url)
+	              VALUES (gen_random_uuid(), :target_user_id, :target_type, :target_id, :from_id, :from_name, :product_id, :review_id, :comment_id, :read, :notification_type, :target_url) 
 	              RETURNING id, created_at`
 		
 		rows, err := db.NamedQuery(query, notification)
 		if err != nil {
-			log.Printf("Error inserting like notification: %v", err)
+			log.Printf("Error inserting like notification for user %s (target: %s): %v", notification.TargetUserID, notification.TargetType, err)
 			return c.Status(500).SendString("Failed to create like notification")
 		}
 		defer rows.Close()
@@ -663,6 +742,7 @@ func MarkNotificationAsRead(db *sqlx.DB, hub *sse.SSEHub) fiber.Handler {
 		}
 
 		if rowsAffected == 0 {
+			log.Printf("Attempted to mark non-existent notification as read: ID=%s, Type=%s", notificationID, notificationType)
 			return c.Status(404).SendString("Notification not found")
 		}
 

@@ -147,3 +147,15 @@ func (h *SSEHub) RegisterClient(client *SSEClient) {
 func (h *SSEHub) UnregisterClient(client *SSEClient) {
 	h.unregister <- client
 }
+
+// GetConnectionCount returns the total number of active SSE connections
+func (h *SSEHub) GetConnectionCount() int {
+	h.mutex.RLock()
+	defer h.mutex.RUnlock()
+	
+	count := 0
+	for _, clients := range h.clients {
+		count += len(clients)
+	}
+	return count
+}

@@ -157,6 +157,16 @@ func sendExistingNotifications(db *sqlx.DB, client *sse.SSEClient) {
 		log.Printf("Error fetching owner notifications for SSE: %v", err)
 	}
 
+	// Get unread like notifications
+	likeQuery := `SELECT * FROM like_notifications
+                  WHERE target_user_id = $1 AND read = false
+                  ORDER BY created_at DESC`
+	var likeNotifications []models.LikeNotification
+	err = db.Select(&likeNotifications, likeQuery, client.UserID)
+	if err != nil {
+		log.Printf("Error fetching like notifications for SSE: %v", err)
+	}
+
 	// Send user notifications
 	for _, notification := range userNotifications {
 		message := models.NotificationMessage{
@@ -190,6 +200,24 @@ func sendExistingNotifications(db *sqlx.DB, client *sse.SSEClient) {
 		case client.Channel <- []byte(sseData):
 		default:
 			log.Printf("Failed to send existing owner notification to client %s", client.ID)
+		}
+	}
+
+	// Send like notifications
+	for _, notification := range likeNotifications {
+		message := models.NotificationMessage{
+			UserID:       client.UserID,
+			Type:         "like",
+			Event:        "existing_notification",
+			Notification: notification,
+		}
+		messageBytes, _ := json.Marshal(message)
+		sseData := fmt.Sprintf("data: %s\n\n", messageBytes)
+
+		select {
+		case client.Channel <- []byte(sseData):
+		default:
+			log.Printf("Failed to send existing like notification to client %s", client.ID)
 		}
 	}
 }

@@ -24,6 +24,8 @@ func CreateSchema(db *sqlx.DB) error {
         parent_id VARCHAR(255),
         from_name VARCHAR(255),
         product_id VARCHAR(255),
+        target_type VARCHAR(50),
+        target_url VARCHAR(500),
         FOREIGN KEY (parent_user_id) REFERENCES users(id) ON DELETE CASCADE
     );
 
@@ -41,6 +43,8 @@ func CreateSchema(db *sqlx.DB) error {
         comment_id VARCHAR(255),
         review_id VARCHAR(255),
         notification_type VARCHAR(50) NOT NULL,
+        target_type VARCHAR(50),
+        target_url VARCHAR(500),
         FOREIGN KEY (owner_id) REFERENCES users(id) ON DELETE CASCADE
     );
 
@@ -52,18 +56,26 @@ func CreateSchema(db *sqlx.DB) error {
         from_id VARCHAR(255) NOT NULL,
         from_name VARCHAR(255) NOT NULL,
         product_id VARCHAR(255),
+        review_id VARCHAR(255),
+        comment_id VARCHAR(255),
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         read BOOLEAN DEFAULT FALSE,
+        notification_type VARCHAR(50) NOT NULL,
+        target_url VARCHAR(500),
         FOREIGN KEY (target_user_id) REFERENCES users(id) ON DELETE CASCADE,
         FOREIGN KEY (from_id) REFERENCES users(id) ON DELETE CASCADE
     );
 
     CREATE INDEX IF NOT EXISTS idx_user_notifications_user_id ON user_notifications(parent_user_id);
     CREATE INDEX IF NOT EXISTS idx_user_notifications_created_at ON user_notifications(created_at);
+    CREATE INDEX IF NOT EXISTS idx_user_notifications_user_unread ON user_notifications(parent_user_id, read, created_at);
     CREATE INDEX IF NOT EXISTS idx_product_owner_notifications_owner_id ON product_owner_notifications(owner_id);
     CREATE INDEX IF NOT EXISTS idx_product_owner_notifications_created_at ON product_owner_notifications(created_at);
+    CREATE INDEX IF NOT EXISTS idx_product_owner_notifications_owner_unread ON product_owner_notifications(owner_id, read, created_at);
     CREATE INDEX IF NOT EXISTS idx_like_notifications_target_user_id ON like_notifications(target_user_id);
     CREATE INDEX IF NOT EXISTS idx_like_notifications_created_at ON like_notifications(created_at);
+    CREATE INDEX IF NOT EXISTS idx_like_notifications_user_unread ON like_notifications(target_user_id, read, created_at);
+    CREATE INDEX IF NOT EXISTS idx_system_notifications_target_users ON system_notifications(target_user_ids, read, created_at);
 
     CREATE TABLE IF NOT EXISTS system_notifications (
         id VARCHAR(255) PRIMARY KEY,

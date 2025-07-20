@@ -10,12 +10,14 @@ type UserNotification struct {
 	CreatedAt        time.Time `db:"created_at" json:"created_at"`
 	Read             bool      `db:"read" json:"read"`
 	NotificationType string    `db:"notification_type" json:"notification_type"`
-	CommentID        string    `db:"comment_id" json:"comment_id"`
+	CommentID        *string   `db:"comment_id" json:"comment_id,omitempty"`
 	ReviewID         string    `db:"review_id" json:"review_id"`
 	FromID           string    `db:"from_id" json:"from_id"`
 	ParentID         string    `db:"parent_id" json:"parent_id"`
 	FromName         string    `db:"from_name" json:"from_name"`
 	ProductID        string    `db:"product_id" json:"product_id"`
+	TargetType       *string   `db:"target_type" json:"target_type,omitempty"`
+	TargetURL        *string   `db:"target_url" json:"target_url,omitempty"`
 }
 
 // ProductOwnerNotification represents a notification for a product owner
@@ -30,9 +32,11 @@ type ProductOwnerNotification struct {
 	FromName         string    `db:"from_name" json:"from_name"`
 	FromID           string    `db:"from_id" json:"from_id"`
 	Read             bool      `db:"read" json:"read"`
-	CommentID        *string   `db:"comment_id" json:"comment_id"`
-	ReviewID         *string   `db:"review_id" json:"review_id"`
+	CommentID        *string   `db:"comment_id" json:"comment_id,omitempty"`
+	ReviewID         string    `db:"review_id" json:"review_id"`
 	NotificationType string    `db:"notification_type" json:"notification_type"`
+	TargetType       *string   `db:"target_type" json:"target_type,omitempty"`
+	TargetURL        *string   `db:"target_url" json:"target_url,omitempty"`
 }
 
 // User represents a user in the system
@@ -44,15 +48,19 @@ type User struct {
 
 // LikeNotification represents a like notification
 type LikeNotification struct {
-	ID           string    `db:"id" json:"id"`
-	TargetUserID string    `db:"target_user_id" json:"target_user_id"` // User who owns the liked content
-	TargetType   string    `db:"target_type" json:"target_type"`       // "comment" or "review"
-	TargetID     string    `db:"target_id" json:"target_id"`           // ID of the liked content
-	FromID       string    `db:"from_id" json:"from_id"`               // User who liked
-	FromName     string    `db:"from_name" json:"from_name"`           // Name of user who liked
-	ProductID    string    `db:"product_id" json:"product_id"`         // Product context
-	CreatedAt    time.Time `db:"created_at" json:"created_at"`
-	Read         bool      `db:"read" json:"read"`
+	ID               string    `db:"id" json:"id"`
+	TargetUserID     string    `db:"target_user_id" json:"target_user_id"` // User who owns the liked content
+	TargetType       string    `db:"target_type" json:"target_type"`       // "comment" or "review"
+	TargetID         string    `db:"target_id" json:"target_id"`           // ID of the liked content
+	FromID           string    `db:"from_id" json:"from_id"`               // User who liked
+	FromName         string    `db:"from_name" json:"from_name"`           // Name of user who liked
+	ProductID        string    `db:"product_id" json:"product_id"`         // Product context
+	ReviewID         string    `db:"review_id" json:"review_id"`           // Review ID (always present)
+	CommentID        *string   `db:"comment_id" json:"comment_id,omitempty"` // Comment ID (only for comment likes)
+	CreatedAt        time.Time `db:"created_at" json:"created_at"`
+	Read             bool      `db:"read" json:"read"`
+	NotificationType string    `db:"notification_type" json:"notification_type"`
+	TargetURL        *string   `db:"target_url" json:"target_url,omitempty"`
 }
 
 // SystemNotification represents a system/admin notification

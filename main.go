@@ -54,8 +54,9 @@ func main() {
 		AllowCredentials: false,
 		ExposeHeaders:    "Content-Length, Content-Type",
 	}))
+	// Add request logging middleware (uncomment for debugging)
 	// app.Use(logger.New(logger.Config{
-	// 	Format: "[${ip}]:${port} ${status} - ${method} ${path}\n",
+	// 	Format: "[${time}] ${ip} ${status} - ${method} ${path} (${latency})\n",
 	// }))
 
 	// Routes
@@ -75,12 +76,37 @@ func main() {
 	// SSE route
 	app.Get("/notifications/stream", handlers.StreamNotifications(db, sseHub))
 	
-	// SSE documentation route
-	app.Get("/sse-help", handlers.SSEHelpHandler())
+	// Documentation routes
+	app.Get("/docs", handlers.DocsHandler())
+	app.Get("/sse-help", handlers.SSEHelpHandler()) // Keep for backward compatibility
 	
 	// Test SSE endpoint
 	app.Get("/test/sse", handlers.TestSSEHandler())
+	
+	// Health check endpoint
+	app.Get("/health", func(c *fiber.Ctx) error {
+		// Check database connection
+		if err := db.Ping(); err != nil {
+			return c.Status(503).JSON(fiber.Map{
+				"status": "unhealthy",
+				"database": "disconnected",
+				"error": err.Error(),
+			})
+		}
+		
+		return c.JSON(fiber.Map{
+			"status": "healthy",
+			"database": "connected",
+			"sse_connections": sseHub.GetConnectionCount(),
+		})
+	})
 
-	log.Printf("Server starting on port 3001...")
-	log.Fatal(app.Listen(":3001"))
+	// Get port from environment variable with fallback
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "3001"
+	}
+
+	log.Printf("Server starting on port %s...", port)
+	log.Fatal(app.Listen(":" + port))
 }
