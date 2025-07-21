@@ -66,17 +66,6 @@ func CreateSchema(db *sqlx.DB) error {
         FOREIGN KEY (from_id) REFERENCES users(id) ON DELETE CASCADE
     );
 
-    CREATE INDEX IF NOT EXISTS idx_user_notifications_user_id ON user_notifications(parent_user_id);
-    CREATE INDEX IF NOT EXISTS idx_user_notifications_created_at ON user_notifications(created_at);
-    CREATE INDEX IF NOT EXISTS idx_user_notifications_user_unread ON user_notifications(parent_user_id, read, created_at);
-    CREATE INDEX IF NOT EXISTS idx_product_owner_notifications_owner_id ON product_owner_notifications(owner_id);
-    CREATE INDEX IF NOT EXISTS idx_product_owner_notifications_created_at ON product_owner_notifications(created_at);
-    CREATE INDEX IF NOT EXISTS idx_product_owner_notifications_owner_unread ON product_owner_notifications(owner_id, read, created_at);
-    CREATE INDEX IF NOT EXISTS idx_like_notifications_target_user_id ON like_notifications(target_user_id);
-    CREATE INDEX IF NOT EXISTS idx_like_notifications_created_at ON like_notifications(created_at);
-    CREATE INDEX IF NOT EXISTS idx_like_notifications_user_unread ON like_notifications(target_user_id, read, created_at);
-    CREATE INDEX IF NOT EXISTS idx_system_notifications_target_users ON system_notifications(target_user_ids, read, created_at);
-
     CREATE TABLE IF NOT EXISTS system_notifications (
         id VARCHAR(255) PRIMARY KEY,
         target_user_ids TEXT, -- Comma-separated user IDs, empty means broadcast to all
@@ -89,6 +78,16 @@ func CreateSchema(db *sqlx.DB) error {
         notification_type VARCHAR(50) DEFAULT 'system'
     );
 
+    CREATE INDEX IF NOT EXISTS idx_user_notifications_user_id ON user_notifications(parent_user_id);
+    CREATE INDEX IF NOT EXISTS idx_user_notifications_created_at ON user_notifications(created_at);
+    CREATE INDEX IF NOT EXISTS idx_user_notifications_user_unread ON user_notifications(parent_user_id, read, created_at);
+    CREATE INDEX IF NOT EXISTS idx_product_owner_notifications_owner_id ON product_owner_notifications(owner_id);
+    CREATE INDEX IF NOT EXISTS idx_product_owner_notifications_created_at ON product_owner_notifications(created_at);
+    CREATE INDEX IF NOT EXISTS idx_product_owner_notifications_owner_unread ON product_owner_notifications(owner_id, read, created_at);
+    CREATE INDEX IF NOT EXISTS idx_like_notifications_target_user_id ON like_notifications(target_user_id);
+    CREATE INDEX IF NOT EXISTS idx_like_notifications_created_at ON like_notifications(created_at);
+    CREATE INDEX IF NOT EXISTS idx_like_notifications_user_unread ON like_notifications(target_user_id, read, created_at);
+    CREATE INDEX IF NOT EXISTS idx_system_notifications_target_users ON system_notifications(target_user_ids, read, created_at);
     CREATE INDEX IF NOT EXISTS idx_system_notifications_created_at ON system_notifications(created_at);
     `
 	_, err := db.Exec(schema)
